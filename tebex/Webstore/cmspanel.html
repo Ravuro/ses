@@ -1,0 +1,12 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="site-content site-content-widgets">
+  <main class="store-text text-content">
+    <h2>{{ page.title }}</h2>
+    {{ page.metaData.content|raw }}
+  </main>
+
+  {% include "sidebar.twig" %}
+</div>
+{% endblock %}

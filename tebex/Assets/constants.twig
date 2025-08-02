@@ -1,0 +1,36 @@
+<script type="text/javascript">
+const __kTemplateConstants = {
+  loginRequired: {{ store.noLogin ? 'false' : 'true' }},
+  isLoggedIn: {{ basket.username ? 'true' : 'false' }},
+  toast: {{ page.message.display ? "`#{ page.message.text }`" : 'null' }},
+  checkoutTheme: `{{ config('checkout-theme')|lower }}`,
+  locale: `{{ store.locale }}`
+}
+
+function __(id) {
+  const strings = {
+    "Add to Basket": `{{ __("Add to Basket") }}`,
+    "Added to Basket": `{{ __("Added to Basket") }}`,
+    "Subscribe": `{{ __("Subscribe") }}`,
+    "Gift this package": `{{ __("Gift this package") }}`,
+    "Gift": `{{ __("Gift") }}`,
+    "Send gift": `{{ __("Send gift") }}`,
+    "Time Expired": `{{ __("Time Expired") }}`,
+    "Copied!": `{{ __("Copied!") }}`,
+    "Close": `{{ __("Close") }}`,
+    "Enter a username to gift this package to":
+      `{{ __("Enter a username to gift this package to") }}`,
+    "Failed to add to basket": `{{ __("Failed to add to basket") }}`,
+    "Basket": `{{ __("Basket") }}`,
+    "Basket is empty": `{{ __("Basket is empty") }}`,
+    "Please fill in all fields": `{{ __("Please fill in all fields") }}`,
+    "Gift sent to": `{{ __("Gift sent to") }}`,
+    "Failed to send gift": `{{ __("Failed to send gift") }}`,
+    "Please enter a valid username": `{{ __("Please enter a valid username") }}`,
+    "Subscribed successfully!": `{{ __("Subscribed successfully!") }}`,
+    "Failed to subscribe": `{{ __("Failed to subscribe") }}`,
+  }
+
+  return strings[id] ?? id
+}
+</script>

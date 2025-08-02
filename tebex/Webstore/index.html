@@ -1,0 +1,29 @@
+{% extends "layout.html" %}
+
+{% block bodyClass %}page-index{% endblock %}
+
+{% block content %}
+{% if config('home-categories') == 'On' %}
+    <div class="site-home-categories">
+        {% for category in store.categories %}
+    		<a
+                class="category"
+                href="/category/{{ category.slug ? category.slug : category.id }}"
+            >
+    			<img src="{{ category.image }}" alt="{{ category.name }}" />
+    			{{ category.name }}
+    		</a>
+        {% endfor %}
+    </div>
+{% endif %}
+
+<div class="site-content {% if config('home-sidebar') == 'On' %}site-content-widgets{% endif %}">
+    <main class="store-text text-content">
+        {{ index.description|raw }}
+    </main>
+
+    {% if config('home-sidebar') == 'On' %}
+        {% include "sidebar.twig" %}
+    {% endif %}
+</div>
+{% endblock %}

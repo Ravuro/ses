@@ -1,0 +1,9 @@
+{% if currency == 'USD' %}
+  ${{ price|money }}
+{% elseif currency == 'EUR' %}
+  €{{ price|money }}
+{% elseif currency == 'GBP' %}
+  £{{ price|money }}
+{% else %}
+  {{ price|money }} {{ currency }}
+{% endif %}

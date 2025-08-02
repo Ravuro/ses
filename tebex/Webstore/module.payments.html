@@ -1,0 +1,44 @@
+<div class="widget widget-recent">
+  <h4 class="widget-title">{{ module.header }}</h4>
+  <div class="widget-content">
+    {% if module.payments|length > 0 %}
+      <div class="purchases">
+        {% for payment in module.payments %}
+          <div class="purchase">
+            {% if store.noLogin == false %}
+              <img src="{{ payment.skin }}" class="avatar" />
+            {% endif %}
+
+            <div class="info">
+              <h6 class="username">{{ payment.ign }}</h6>
+
+              {% if module.displayPackage or module.displayPrice %}
+                <p>
+                  {% if module.displayPackage %}
+                    {{ payment.name[:20] }}
+                  {% endif %}
+
+                  {% if module.displayPackage and module.displayPrice %}
+                    <span class="sep">&middot;</span>
+                  {% endif %}
+
+                  {% if module.displayPrice %}
+                    <span class="price">
+                      {% include 'price.twig' with payment %}
+                    </span>
+                  {% endif %}
+                </p>
+              {% endif %}
+
+              {% if module.displayTime %}
+                <time>{{ payment.time }}</time>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="empty">{{ __("No recent payments to display.") }}</p>
+    {% endif %}
+  </div>
+</div>

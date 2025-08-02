@@ -1,0 +1,31 @@
+<div class="widget widget-top-donator">
+    <h4 class="widget-title">{{ module.header }}</h4>
+    
+    <div class="widget-content">
+        {% if module.donor %}
+        	<img src="{{ module.skin }}" class="avatar">
+        	<h6 class="username">{{ module.ign }}</h6>
+        	<p>
+                {% if module.displayAmount %}
+                    {{ __("Donated") }} <strong>{{ module.total|money }} {{ store.currency }}</strong>
+                {% else %}
+                    {{ __("Donated the most ") }}
+                {% endif %}
+    
+                {% if module.period == "hourly" %}
+                    {{ __("this hour.") }}
+                {% elseif module.period == "daily" %}
+                    {{ __("today.") }}
+                {% elseif module.period == "monthly" %}
+                    {{ __("this month.") }}
+                {% elseif module.period == "yearly" %}
+                    {{ __("this year.") }}
+                {% else %}
+                    {{ __("this week.") }}
+                {% endif %}
+        	</p>
+        {% else %}
+        	<p class="empty">{{ __("No recent top donator to display.") }}</p>
+        {% endif %}
+    </div>
+</div>

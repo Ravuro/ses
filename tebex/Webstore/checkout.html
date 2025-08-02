@@ -1,0 +1,113 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="site-content">
+  <form class="basket" method="post" action="/checkout/item/update" data-popup>
+    <header class="basket-header" data-ident="{{ basket.ident }}">
+      <h3 class="basket-title">
+        {{ basket.ign != '' ? basket.ign :  __("Basket") }}
+      </h3>
+    </header>
+
+    <div class="basket-second-header">
+      <div class="count">{{ basket.packages|length }} {{ __("Items") }}</div>
+      <div class="total">
+        {% include 'price.twig' with {
+          price: basket.price,
+          currency: basket.currency
+        } %}
+      </div>
+    </div>
+
+    <div class="basket-content">
+      <div class="basket-items">
+        {% for package in basket.packages %}
+          <div
+            class="basket-item"
+            data-package="{{ package.id }}"
+            data-expiry="{{ package.expiryPeriod|slice(0, 1) }}"
+            data-type="{{ package.type }}"
+          >
+            <div class="info">
+              <h4 class="title">
+                <a href="/package/{{ package.identifier }}">
+                  {{ package.name }}
+                </a>
+              </h4>
+
+              <ul class="options">
+                {% if package.expiryPeriod|slice(0, 1) != '0' %}
+                  <li>{{ package.expiryPeriod }}</li>
+                {% endif %}
+
+                {% for option in package.options %}
+                  <li>{{ option.name }}: <strong>{{ option.value|raw }}</strong></li>
+                {% endfor %}
+              </ul>
+
+              <div class="price">
+                {% include 'price.twig' with {
+                  price: package.price,
+                  currency: basket.currency
+                } %}
+              </div>
+            </div>
+
+            <div class="quantity-field">
+              <button
+                class="btn-tertiary adjust decrease"
+                {% if package.price == 0.00 or package.disableQuantity %}
+                  disabled
+                {% endif %}
+              >-</button>
+
+              <input
+                type="number"
+                inputmode="numeric"
+                class="quantity"
+                name="quantity[{{ package.id }}]"
+                value="{{ package.quantity }}"
+                min="1"
+                max="50"
+                {% if package.price == 0.00 or package.disableQuantity %}
+                  disabled
+                {% endif %}
+              />
+
+              <button
+                class="btn-tertiary adjust increase"
+                {% if package.price == 0.00 or package.disableQuantity %}
+                  disabled
+                {% endif %}
+              >+</button>
+            </div>
+
+            <a
+              href="/checkout/packages/remove/{{ package.id }}"
+              class="btn-secondary btn-glyph remove"
+            >
+              {{ __("Remove") }}
+            </a>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="basket-checkout">
+      <h3>
+        {{ __("Total") }}:
+        <div class="total">
+          {% include 'price.twig' with {
+            price: basket.price,
+            currency: basket.currency
+          } %}
+        </div>
+      </h3>
+
+      <button type="submit" class="btn-primary checkout">
+        {{ __("Proceed to checkout") }}
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}

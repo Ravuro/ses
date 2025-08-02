@@ -1,0 +1,90 @@
+<div
+  class="actions product-actions"
+  data-package="{{ package.id }}"
+  data-package-type="{{ package.type }}"
+  {% if package.purchasable == false %}
+    title="{{ package.reason }}"
+  {% endif %}
+>
+  <p class="price">
+    {% if package.customPrice %}
+      {{ __("You decide how much to pay.") }}
+    {% elseif package.price == 0.00 %}
+      <strong>{{ __("This item is free.") }}</strong>
+    {% else %}
+      {% if package.discount.applied %}
+        <del class="discount">
+          {% include 'discount.twig' with {
+            price: package.discount.original,
+            currency
+          } %}
+        </del>
+      {% endif %}
+
+      {% include 'price.twig' with {
+        price: package.price,
+        currency
+      } %}
+    {% endif %}
+  </p>
+
+  {% if package.type != "single" %}
+    <a
+      href="/checkout/packages/add/{{ packageIdentifier }}/subscribe"
+      class="btn-primary subscribe {{ package.type == 'both' ? 'half' : 'wide' }}"
+      {% if package.purchasable == false %}disabled{% endif %}
+      {% if package.basket %}hidden{% endif %}
+    >
+      {{ __("Subscribe") }}
+    </a>
+  {% endif %}
+
+  {% if package.type != "subscription" %}
+    <a
+      href="/checkout/packages/add/{{ packageIdentifier }}/single"
+      class="add
+        {{- package.type == 'both' ? ' btn-secondary' : ' btn-primary' -}}
+        {{- package.type == 'both' ? ' half' : ' wide' -}}
+      "
+      {% if package.purchasable == false %}disabled{% endif %}
+      {% if package.basket %}hidden{% endif %}
+    >
+      {{ __("Add to Basket") }}
+    </a>
+  {% endif %}
+
+  {% if package.price == 0.00 or package.disableQuantity %}
+    <button
+      class="btn-secondary wide open-basket open-basket-cta"
+      {% if package.basket == false %}hidden{% endif %}
+    >
+      {{ __("Added to Basket") }}
+    </button>
+  {% else %}
+    <div
+      class="quantity-field with-open-basket wide"
+      {% if package.basket == false %}hidden{% endif %}
+    >
+      <button class="btn-tertiary adjust decrease">-</button>
+      <button class="open-basket">{{ __("in Basket") }}</button>
+      <input
+        type="number"
+        inputmode="numeric"
+        class="quantity"
+        name="quantity[{{ package.id }}]"
+        max="50"
+        value="{{ package.quantity ? package.quantity : 0 }}"
+      />
+      <button class="btn-tertiary adjust increase">+</button>
+    </div>
+  {% endif %}
+
+  {% if package.disable_gifting == false and package.storeGiftingEnabled %}
+    <button
+      class="btn-secondary btn-icon gift"
+      title="{{ __("Gift this package") }}"
+    >
+      {{ __("Gift this package") }}
+    </button>
+  {% endif %}
+</div>

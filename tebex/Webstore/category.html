@@ -1,0 +1,23 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="site-content site-content-widgets">
+  <main class="store-products">
+    {% if category.description != "" %}
+      <div class="category-description text-content">{{ category.description|raw }}</div>
+    {% endif %}
+
+    {% if category.packages|length == 0 %}
+      <p class="no-products">{{ __("No packages to display in this category.") }}
+    {% else %}
+      <div class="store-products-{{ category.displayType }}">
+        {% for package in category.packages %}
+          {% include 'package-entry.twig' with { package, currency: basket.currency } %}
+        {% endfor %}
+      </div>
+    {% endif %}
+  </main>
+
+  {% include "sidebar.twig" %}
+</div>
+{% endblock %}

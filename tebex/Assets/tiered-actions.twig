@@ -1,0 +1,67 @@
+{% set packageIdentifier = package.identifier ? package.identifier : package.id %}
+
+<div
+  class="actions product-actions"
+  data-package="{{ package.id }}"
+  data-package-type="{{ package.type }}"
+  {% if package.purchasable == false %}
+    title="{{ package.reason }}"
+  {% endif %}
+>
+  <p class="price">
+    {% if package.customPrice %}
+      {{ __("You decide how much to pay.") }}
+    {% elseif package.price == 0.00 %}
+      <strong>{{ __("This item is free.") }}</strong>
+    {% else %}
+      {% if package.discount.applied %}
+        <del class="discount">
+          {% include 'discount.twig' with {
+            price: package.discount.original,
+            currency
+          } %}
+        </del>
+      {% endif %}
+
+      {% include 'price.twig' with {
+        price: package.price,
+        currency
+      } %}
+    {% endif %}
+  </p>
+
+  {% if tier and tier.package_id == package.id %}
+    <button class="btn-tertiary wide" disabled>
+      {{ __("Subscribed") }}
+    </button>
+  {% elseif tier and tier.downgrade_package_id == package.id %}
+    <button class="btn-tertiary wide" disabled>
+      {{ __("Pending Downgrade") }}
+    </button>
+  {% elseif tier %}
+    <a
+      href="/tier/quote?category={{ category.id }}&amp;package={{ package.id }}"
+      class="btn-primary wide"
+      {% if package.purchasable == false %}disabled{% endif %}
+      {% if package.basket %}hidden{% endif %}
+    >
+      {{ __("Subscribe") }}
+    </a>
+  {% else %}
+    <a
+      href="/checkout/packages/add/{{ packageIdentifier }}/subscribe"
+      class="btn-primary subscribe wide"
+      {% if package.purchasable == false %}disabled{% endif %}
+      {% if package.basket %}hidden{% endif %}
+    >
+      {{ __("Subscribe") }}
+    </a>
+  {% endif %}
+
+  <button
+    class="btn-secondary wide open-basket open-basket-cta"
+    {% if package.basket == false %}hidden{% endif %}
+  >
+    {{ __("Added to Basket") }}
+  </button>
+</div>

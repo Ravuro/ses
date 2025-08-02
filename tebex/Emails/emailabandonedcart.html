@@ -1,0 +1,20 @@
+{% extends "email/layout.html" %}
+
+{% block content %}
+	<p>
+		Hello,
+	</p>
+	<p>
+		We noticed that you visited our store recently and added items to your basket, but you never completed the checkout - did you forget?
+	</p>
+	<p>
+		We hope you'll come back to our store to complete your purchase - to continue from where you left, <a href='{{ cartlink }}'>click here</a>
+	</p>
+	{% if couponcode %}
+		<p>
+			As an additional bonus, we'd like to offer you a discount of {{ couponvalue }}% off of your purchase.
+			To claim your discount, enter coupon code <strong>{{ couponcode }}</strong> at checkout.
+		</p>
+	{% endif %}
+{% endblock %}
+

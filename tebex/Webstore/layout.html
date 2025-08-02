@@ -1,0 +1,25 @@
+{% set isNavigationVertical = config('nav-style') == 'Vertical Nav in Sidebar' %}
+
+{% include "head.twig" %}
+
+<body class="
+  {{- isNavigationVertical ? 'is-navigation-vertical ' : 'is-navigation-horizontal ' -}}
+
+  {%- if config('sidebar-position') == 'Right' %}is-sidebar-right {% endif -%}
+
+  {%- if config('home-categories') == 'On' %}home-categories-enabled {% endif -%}
+
+  {%- block bodyClass %}{% endblock -%}
+">
+  <div
+    class="site"
+    data-toast="{{ page.message.display ? page.message.text : '' }}"
+  >
+    {% include "header.twig" %}
+
+    {% block content %}{% endblock %}
+
+    {% include "footer.twig" %}
+  </div>
+</body>
+</html>

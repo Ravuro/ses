@@ -1,0 +1,23 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="site-content">
+	<main class="store-text store-form text-content" data-popup>
+        <h2>{{ __("Please log in") }}</h2>
+        {% if external %}
+            <p class="field">
+                <a href="{{ url }}" class="btn-primary">Login via {{ provider }}</a>
+            </p>
+        {% else %}
+            <form method="post" class="field">
+                <input
+                    type="text"
+                    name="ign"
+                    placeholder="Enter your in-game username"
+                />
+                <button type="submit" class="btn-primary">Login</button>
+            </form>
+        {% endif %}
+    </main>
+</div>
+{% endblock %}

@@ -1,0 +1,56 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="site-content site-content-widgets">
+  <main class="store-category-tiered">
+    <header class="store-category-tiered-header text-content">
+      <h2>{{ category.name }}</h2>
+
+      {% if category.description != "" %}
+        <p>{{ category.description|raw }}</p>
+      {% endif %}
+    </header>
+
+    {% if category.packages|length > 0 %}
+      <div class="store-products-tiered">
+        {% for package in category.packages %}
+          <article
+            class="store-product store-product-tiered {{ (tier and tier.package_id == package.id) ? 'subscribed' : '' }}"
+          >
+            <img
+              class="image"
+              src="{{ package.image.url }}"
+              alt="{{ package.name }}"
+            />
+
+            <h3 class="product-title">
+              {{ package.name }}
+              {% if package.countdownEnds %}
+                <span
+                  class="countdown"
+                  data-countdown="{{ package.countdownEnds }}"
+                >
+                  {{__("Ending Soon!") }}
+                </span>
+              {% endif %}
+            </h3>
+
+            <div class="descr">
+              {{ package.description|raw }}
+            </div>
+
+            {% include 'tiered-actions.twig' with {
+              package,
+              currency: basket.currency
+            } %}
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p>{{ __("No packages to display in this category.") }}</p>
+    {% endif %}
+  </main>
+
+  {% include "sidebar.twig" %}
+</div>
+{% endblock %}

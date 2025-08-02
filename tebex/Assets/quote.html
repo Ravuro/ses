@@ -1,0 +1,31 @@
+{% extends "layout.html" %}
+
+{% block content %}
+
+<main class="store-quote store-form" data-popup>
+  <div class="text-content">
+    <h2>Update Tier</h2>
+
+    {{ description|raw }}
+  </div>
+
+  <form method="post" action="/tier/update">
+    <input type="hidden" name="category_id" value="{{ category }}">
+    <input type="hidden" name="package_id" value="{{ package }}">
+
+    {% for k, v in options %}
+      <input type="hidden" name="options[{{ k }}]" value="{{ v }}">
+    {% endfor %}
+
+    <div class="actions quote-actions">
+      <a href="/category/{{category}}" class="btn-tertiary wide">
+        {{ __("Back") }}
+      </a>
+      <button type="submit" class="btn-primary wide confirm">
+        {{ __("Confirm") }}
+      </button>
+    </div>
+  </form>
+</main>
+
+{% endblock %}

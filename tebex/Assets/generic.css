@@ -1,0 +1,211 @@
+@import url("https://fonts.googleapis.com/css2?family=Lato:ital,wght@0,100;0,300;0,400;0,700;0,900;1,100;1,300;1,400;1,700;1,900&display=swap");
+:root {
+  --color-primary: #41C4C3;
+  --bg-image: url("https://webstore-template-assets.tebex.io/images/page-bg.jpg");
+}
+
+body {
+  font-family: Lato, sans-serif;
+}
+body::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  height: 100%;
+  max-height: 400px;
+  z-index: -1;
+  background: var(--bg-image) center center/cover no-repeat;
+  mask-image: linear-gradient(rgba(0, 0, 0, 0.75) 50%, rgba(0, 0, 0, 0.25));
+  pointer-events: none;
+}
+
+.btn-primary,
+.btn-secondary,
+.btn-tertiary {
+  border-radius: 2px;
+}
+
+.btn-primary:hover, .btn-primary:focus,
+.btn-secondary:hover,
+.btn-secondary:focus {
+  box-shadow: 0 0 6px rgb(from var(--btn-color-bg-hover) r g b/0.6);
+}
+
+.quantity-field {
+  border-radius: 5px;
+}
+
+.site-header-inner .info .image {
+  border-radius: 5px;
+}
+.site-header-inner .user-name ul li {
+  overflow: hidden;
+}
+.site-header-inner .user-name ul li:first-child {
+  border-top-left-radius: 2px;
+  border-top-right-radius: 2px;
+}
+.site-header-inner .user-name ul li:last-child {
+  border-bottom-left-radius: 2px;
+  border-bottom-right-radius: 2px;
+}
+
+.site-sale-banner {
+  border-radius: 5px;
+}
+
+.site-home-categories .category {
+  border-radius: 5px;
+  padding: 20px var(--widget-padding);
+  background: var(--color-brighter-bg);
+  transition: color 0.15s ease-in-out;
+}
+.site-home-categories .category:hover {
+  color: var(--color-primary);
+}
+
+.category-description {
+  border-radius: 5px;
+  background: var(--color-brighter-bg);
+}
+
+.store-text {
+  border-radius: 5px;
+  background: var(--color-brighter-bg);
+}
+.store-text h1,
+.store-text h2,
+.store-text h3,
+.store-text h4,
+.store-text h5,
+.store-text h6 {
+  text-align: center;
+}
+
+.store-products-list .store-product,
+.store-products-images .store-product {
+  border-radius: 5px;
+  background: var(--color-brighter-bg);
+}
+
+.store-products-images .store-product {
+  text-align: center;
+}
+
+.widget-title {
+  text-align: center;
+}
+
+.widget .store-product {
+  text-align: center;
+}
+
+.no-products {
+  color: var(--color-text-secondary);
+  background: var(--color-brighter-bg);
+  border-radius: 5px;
+}
+
+.store-product-full {
+  border-radius: 5px;
+  background: var(--color-brighter-bg);
+}
+
+.store-product .quantity-field {
+  border-radius: 5px;
+  background: var(--color-brighter-bg);
+}
+.store-product .quantity-field input[type=number] {
+  border: none;
+}
+
+@media (width > 960px) {
+  .navigation-horizontal > ul {
+    border-radius: 5px;
+  }
+}
+.navigation-horizontal .has-children > ul {
+  border-radius: 5px;
+}
+
+.widget {
+  border-radius: 5px;
+  background: var(--color-brighter-bg);
+}
+@media (width <= 960px) {
+  .widget.site-navigation {
+    border-radius: 0;
+    background: transparent;
+  }
+}
+
+.widget-gift-card .gift-card-input {
+  border-radius: 2px;
+}
+
+.widget-top-donator .avatar {
+  border-radius: 50%;
+}
+
+.widget-community-goal .progress,
+.widget-goal .progress {
+  border-radius: 2px;
+}
+.widget-community-goal .progress-bar,
+.widget-goal .progress-bar {
+  border-radius: 2px;
+}
+
+.popup-content {
+  border-radius: 5px;
+}
+
+.popup-close {
+  border-radius: 0 5px 0 5px;
+}
+
+.basket-popup-content,
+.basket-popup-content .popup-close {
+  border-radius: 0;
+}
+
+.basket-items {
+  padding: var(--widget-padding) calc(var(--content-padding) - var(--widget-padding));
+}
+
+.basket-item {
+  border-radius: 5px;
+}
+.basket-item .quantity {
+  border-radius: 2px;
+}
+
+.toast {
+  border-radius: 6px;
+}
+
+.toast-close {
+  border-radius: 2px;
+}
+
+.store-category-tiered {
+  border-radius: 5px;
+  background: var(--color-brighter-bg);
+}
+
+.store-category-tiered-header h1,
+.store-category-tiered-header h2,
+.store-category-tiered-header h3,
+.store-category-tiered-header h4,
+.store-category-tiered-header h5,
+.store-category-tiered-header h6 {
+  text-align: center;
+}
+
+.store-product-tiered {
+  border-radius: 5px;
+  background: rgb(from var(--color-bg) r g b/0.5);
+}

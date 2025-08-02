@@ -1,0 +1,152 @@
+{% set discordLoginRequired = false %}
+{% set discordLogin = null %}
+
+{% for variable in options.variables %}
+  {% if variable.id == "discord_id" %}
+    {% set discordLogin = variable %}
+    {% if variable.required and variable.value == false %}
+      {% set discordLoginRequired = true %}
+    {% endif %}
+  {% endif %}
+{% endfor %}
+
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="site-content">
+  <main class="store-product-options" data-popup>
+    <h2 class="product-title">
+      {{ __("Adding :package to your Basket", { 'package': options.package.name }) }}
+    </h2>
+
+    <form class="store-form store-form-options" method="post">
+      {% if options.package.chooseServer %}
+        <div class="field">
+          <p>{{ __("Please choose which server to receive this package upon") }}</p>
+          <select name="server" required>
+            {% for server in options.servers %}
+              <option value="{{ server.id }}">{{ server.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      {% endif %}
+
+      {% if options.package.customPrice %}
+        <div class="field">
+          <p>{{ __("Please enter an amount greater than :amount :currency that you'd like to pay", { 'amount': options.package.price, 'currency': store.currency }) }}.</p>
+
+          <div class="field-inline">
+            <input
+              type="number"
+              name="price"
+              placeholder="{{ __("Please enter the amount you'd like to pay.") }}"
+              required
+            />
+
+            {{ store.currency }}
+          </div>
+        </div>
+      {% endif %}
+
+      {% for variable in options.variables %}
+        {% if variable.type == "dropdown" %}
+          <div class="field">
+            <p>{{ variable.description }}</p>
+
+            <select name="variables[{{ variable.id }}]" required>
+              <option value="" disabled>{{ variable.description }}</option>
+
+              {% for option in variable.options %}
+                <option value="{{ option.id }}" {{ option.default == true ? 'selected' : '' }}>
+                  {{ option.name }}
+                  {% if option.price > 0 %}
+                    (+{{ option.price|money }} {{ basket.currency }})
+                  {% endif %}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+        {% elseif variable.id == "discord_id" %}
+          <div class="field">
+            {% if variable.value %}
+              <p>
+                {{ __("Thank you for logging in to Discord as") }}
+                <strong>{{ variable.discord_tag }}</strong>
+              </p>
+            {% elseif variable.required == true %}
+              <p>{{ __("You must login to Discord, so we can identify you on our server.") }}</p>
+            {% else %}
+              <p>{{ __("Please login to Discord, so we can identify you on our server.") }}</p>
+            {% endif %}
+
+            <input
+              type="hidden"
+              name="variables[{{ variable.id }}]"
+              value="{{ variable.value }}"
+              {% if variable.required == true %}
+                required
+              {% endif %}
+            />
+          </div>
+        {% else %}
+          <div class="field">
+            <p>{{ variable.description }}</p>
+            <input
+              type="text"
+              name="variables[{{ variable.id }}]"
+              placeholder="{{ variable.description }}"
+              required
+            />
+          </div>
+        {% endif %}
+      {% endfor %}
+
+      <div class="actions {% if discordLogin != null %}actions-multiple{% endif %}">
+        {% if discordLogin != null %}
+          {% if discordLogin.value %}
+            <button
+              type="submit"
+              name="submit"
+              value="Continue"
+              class="btn-primary"
+            >
+              {{ __("Continue") }}
+            </button>
+
+            <a href="https://ident.tebex.io/discord/?return={{ url(['fivem_id']) }}" class="link-text">
+              {{ __("Change Discord Account") }}
+            </a>
+          {% else %}{# if discordLogin.value #}
+            <a
+              href="https://ident.tebex.io/discord/?return={{ url(['fivem_id']) }}"
+              class="btn-primary"
+            >
+              {{ __("Login") }}
+            </a>
+
+            {% if discordLoginRequired == false %}
+              <button
+                type="submit"
+                name="submit"
+                value="Continue"
+                class="btn-secondary"
+              >
+                {{ __("Skip Login") }}
+              </button>
+            {% endif %}
+          {% endif %}{# if discordLogin.value #}
+        {% else %}{# if discordLogin != null #}
+          <button
+            type="submit"
+            name="submit"
+            value="Continue"
+            class="btn-primary"
+          >
+            {{ __("Continue") }}
+          </button>
+        {% endif %}{# if discordLogin != null #}
+      </div>
+    </form>
+  </main>
+</div>
+{% endblock %}

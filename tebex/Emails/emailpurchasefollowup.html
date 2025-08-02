@@ -1,0 +1,16 @@
+{% extends "email/layout.html" %}
+
+{% block content %}
+    <p>
+        Hello,
+    </p>
+    <p>
+        Thank you for purchasing from our store! We hope you're enjoying your purchased products and that you'll come back again soon.
+    </p>
+    {% if couponcode %}
+        <p>
+            We'd like to offer you a discount of {{ couponvalue }}% with your next purchase.
+            To claim your discount, enter the coupon code <strong>{{ couponcode }}</strong> at checkout before {{ expiresat }}.
+        </p>
+    {% endif %}
+{% endblock %}

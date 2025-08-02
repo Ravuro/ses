@@ -1,0 +1,62 @@
+<nav
+  class="site-navigation {% if isNavigationVertical %}widget navigation-vertical{% else %}navigation-horizontal{% endif %}"
+  id="site-navigation"
+>
+  <ul class="menu navigation-list">
+    <li {% if page.category == "index" %}class="active"{% endif %}>
+      <a {% if page.category == "index" %}class="link-active"{% endif %} href="/">
+        {{ __("Home") }}
+      </a>
+    </li>
+
+    {% for category in store.categories %}
+      <li class="
+        {% if category.active %}
+          active
+          {% if category.subcategories|length > 0 %}
+            expanded
+          {% endif %}
+        {% endif %}
+        {% if category.subcategories|length > 0 %}
+          has-children
+        {% endif %}
+      ">
+        <a
+          href="/category/{{ category.slug ? category.slug : category.id }}"
+          {% if category.active %}class="link-active"{% endif %}
+        >{{ category.name }}</a>
+
+        {% if category.subcategories|length > 0 %}
+          <button class="btn-tertiary btn-icon toggle">{{ __("Toggle") }}</button>
+
+          <ul>
+            {% for subcategory in category.subcategories %}
+              <li {% if subcategory.active %}class="active"{% endif %}>
+                <a
+                  href="/category/{{ subcategory.slug ? subcategory.slug : subcategory.id }}"
+                  {% if subcategory.active %}class="link-active"{% endif %}
+                >{{ subcategory.name }}</a>
+              </li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      </li>
+    {% endfor %}
+
+    {% for page in store.pages %}
+      <li {% if page.active %}class="active expanded"{% endif %}>
+        <a href="/{{ page.slug }}" {% if page.active %}class="link-active"{% endif %}>
+          {{ page.title }}
+        </a>
+      </li>
+    {% endfor %}
+
+    {% if basket.username and store.noLogin == false %}
+      <li class="log-out mobile-only">
+        <a href="/checkout/logout">{{ __("Log out") }}</a>
+      </li>
+    {% endif %}
+  </ul>
+
+  <button class="btn-tertiary btn-icon close-navigation">{{ __("Close menu") }}</button>
+</nav>

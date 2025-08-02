@@ -1,0 +1,82 @@
+<header id="header" class="site-header">
+  <div class="site-header-inner">
+    <div class="actions">
+        <button class="btn-tertiary btn-icon toggle-navigation">{{ __("Toggle menu") }}</button>
+    </div>
+
+    {% if basket.username %}
+      <div class="user-actions">
+        <a
+          class="btn-secondary btn-glyph-text user-name"
+          href="/checkout/logout"
+        >
+          <span class="text">
+            {{ basket.ign }}
+          </span>
+          <span class="text-hover">
+            {{ __("Log out") }}
+          </span>
+        </a>
+
+        <button class="btn-primary btn-glyph-text open-basket">
+          {{ __("Basket") }}
+        </button>
+      </div>
+    {% elseif store.noLogin == false %}
+        <a class="log-in btn-tertiary" href="/login">{{ __("Login") }}</a>
+    {% elseif store.noLogin == true %}
+      <div class="user-actions">
+        <button class="btn-primary btn-glyph-text open-basket">{{ __("Basket") }}</button>
+      </div>
+    {% endif %}
+
+    <h1 class="site-title">
+      <a href="/">
+        {% if store.logo %}
+          <img src="{{ store.logo }}" alt="{{ store.name }}" />
+        {% else %}
+          {{ store.name }}
+        {% endif %}
+      </a>
+    </h1>
+
+    {% if config('server-url') %}
+      <div class="info server">
+        <img
+          class="image"
+          src="https://webstore-template-assets.tebex.io/images/server-logo.svg"
+          alt="{{ __("Server name") }}"
+        />
+        <strong class="title">
+          {{ config('server-text') ? config('server-text') : config('server-url') }}
+        </strong>
+        <button
+          class="action"
+          data-copy="{{ config('server-url') }}"
+        >{{ __("Click to Copy") }}</button>
+      </div>
+    {% endif %}
+
+    {% if config('discord-link') %}
+      <a class="info discord" href="{{ config('discord-link') }}" target="_blank">
+        <img
+          class="image"
+          src="https://webstore-template-assets.tebex.io/images/discord.svg"
+          alt="{{ __("Discord") }}"
+        />
+        <strong class="title">{{ __("Join our Discord") }}</strong>
+        <span class="action">{{ __("Click to Join") }}</span>
+      </a>
+    {% endif %}
+  </div>
+
+  {% if config('sale-banner-text') %}
+    <p class="site-sale-banner">
+      {{ config('sale-banner-text') }}
+    </p>
+  {% endif %}
+
+  {% if isNavigationVertical == false %}
+    {% include "navigation.twig" %}
+  {% endif %}
+</header>

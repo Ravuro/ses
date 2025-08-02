@@ -1,0 +1,12 @@
+{% if module.display %}
+<div class="widget widget-featured">
+  <h3 class="widget-title">{{ module.header }}</h3>
+
+  <div class="widget-content">
+    {% include 'package-entry.twig' with {
+      package: module.package,
+      currency: module.package.currency
+    } %}
+  </div>
+</div>
+{% endif %}

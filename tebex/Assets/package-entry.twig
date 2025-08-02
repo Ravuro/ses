@@ -1,0 +1,31 @@
+{% set packageIdentifier = package.identifier ? package.identifier : package.id %}
+
+<article class="store-product">
+  <a
+    class="image-link"
+    href="/package/{{ packageIdentifier }}"
+    title="{{ __("Click for more details.") }}"
+  >
+    <img
+      class="image"
+      src="{{ package.image.url }}"
+      alt="{{ package.name }}"
+    />
+  </a>
+
+  <h4 class="product-title">
+    <a href="/package/{{ packageIdentifier }}">
+      {{ package.name }}
+    </a>
+    {% if package.countdownEnds %}
+      <span
+        class="countdown"
+        data-countdown="{{ package.countdownEnds }}"
+      >
+        {{__("Ending Soon!") }}
+      </span>
+    {% endif %}
+  </h4>
+
+  {% include 'package-actions.twig' with { package, currency } %}
+</article>

@@ -1,0 +1,35 @@
+{% set packageIdentifier = package.identifier ? package.identifier : package.id %}
+
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="site-content site-content-widgets">
+  <main class="store-product store-product-full" data-popup>
+    <h2 class="product-title">
+      {{ package.name }}
+      {% if package.countdownEnds %}
+        <span
+          class="countdown"
+          data-countdown="{{ package.countdownEnds }}"
+        >
+          {{__("Ending Soon!") }}
+        </span>
+      {% endif %}
+    </h2>
+
+    <img
+      class="image"
+      src="{{ package.image.url }}"
+      alt="{{ package.name }}"
+    />
+
+    {% include 'package-actions.twig' with { package, currency: basket.currency } %}
+
+    <div class="descr text-content">
+      {{ package.description|raw }}
+    </div>
+  </main>
+
+  {% include "sidebar.twig" %}
+</div>
+{% endblock %}

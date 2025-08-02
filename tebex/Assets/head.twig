@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="{{ store.locale|replace({'_': '-'}) }}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, shrink-to-fit=no">
+
+    <title>{{ store.name }} · {{ __(page.title) }}</title>
+
+    <link rel="shortcut icon" href="{{ store.favicon }}">
+
+    {% include "constants.twig" %}
+    <script defer src="https://js.tebex.io/v/1.js"></script>
+    <script defer src="{{ asset('main.js') }}"></script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    <link href="{{ asset('shared.css') }}" rel="stylesheet">
+
+    {# If there is no custom theme active, use the generic theme #}
+    {% if store.css != '' -%}
+        <style>{{ store.css|raw }}</style>
+    {%- else -%}
+        <link href="{{ asset('generic.css') }}" rel="stylesheet">
+    {%- endif %}
+
+    <style>
+        :root {
+            {%- if config('primary-colour') != '#000000' -%}
+                --color-primary: {{ config('primary-colour') }};
+            {%- endif -%}
+
+            {%- if config('primary-colour-hover') != '#000000' -%}
+                --color-primary-hover: {{ config('primary-colour-hover') }};
+            {%- endif -%}
+
+            {%- if config('primary-text-colour') != '#000000' -%}
+                --color-primary-text: {{ config('primary-text-colour') }};
+            {%- endif -%}
+
+            {%- if config('primary-text-colour-hover') != '#000000' -%}
+                --color-primary-text-hover: {{ config('primary-text-colour-hover') }};
+            {%- endif -%}
+
+            {%- if config('sale-banner-colour-text') != '#000000' -%}
+                --color-sale-banner-text: {{ config('sale-banner-colour-text') }};
+            {%- endif -%}
+
+            {%- if config('sale-banner-colour-bg') != '#000000' -%}
+                --color-sale-banner-bg: {{ config('sale-banner-colour-bg') }};
+            {%- endif -%}
+
+            {%- if config('bg-image') != '' -%}
+                --bg-image: url({{ config('bg-image') }});
+            {%- endif -%}
+
+            --text-price: "{{ __("Price") }}";
+        }
+    </style>
+</head>
