@@ -17,6 +17,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Ortam
+        run: |
+          echo "runner: $RUNNER_OS $(uname -m)"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME/platforms" 2>/dev/null || echo "platform yok"
+          ls "$ANDROID_HOME/build-tools" 2>/dev/null || echo "build-tools yok"
+
       - uses: actions/checkout@v4
 
       - name: JDK 17
@@ -24,20 +31,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
-
-      - name: Gradle önbelleği
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ hashFiles('telsiz/**/*.gradle.kts', 'telsiz/gradle/wrapper/gradle-wrapper.properties') }}
-          restore-keys: gradle-
+          cache: gradle
 
       - name: APK derle
         working-directory: telsiz
@@ -65,7 +59,7 @@ jobs:
           gh release create telsiz-latest telsiz.apk \
             --target "${GITHUB_SHA}" \
             --title "Telsiz APK" \
-            --notes "Telefona kur: aşağıdaki telsiz.apk dosyasına dokun.
+            --notes "Telefona kurmak için aşağıdaki telsiz.apk dosyasına dokun.
 
-          Derleme: ${GITHUB_SHA}
-          Kanal ve relay ayarı uygulama içinden yapılır."
+          Kanal ve relay ayarı uygulama içinden yapılır.
+          Derleme: ${GITHUB_SHA}"
