@@ -96,9 +96,15 @@ donanımdır — telefon o işi yapamaz.
 
 İki seçenek var; uygulama adresin şemasına bakıp kendisi seçiyor.
 
+Uygulamada hazır bir röle gömülü geliyor
+(`https://alkayazilim.com/relay.php`), yani hiçbir şey kurmadan internet
+üzerinden de konuşulabilir. Kendi röleni kurmak istersen aşağıdaki iki
+yoldan biriyle, adresini Relay alanına yaz.
+
 ### 1. Paylaşımlı hosting (cPanel / PHP) — en kolayı
 
-`server/relay.php` dosyasını FTP ile sitenin herhangi bir klasörüne at.
+`server/relay.php` dosyasını FTP ile ya da cPanel Dosya Yöneticisi'yle
+sitenin herhangi bir klasörüne at.
 Başka hiçbir şey gerekmiyor: Node yok, kurulum yok, sürekli çalışan süreç yok.
 
 Uygulamadaki Relay alanına tam adresini yaz:
@@ -107,9 +113,16 @@ Uygulamadaki Relay alanına tam adresini yaz:
 https://siteniz.com/telsiz/relay.php
 ```
 
-Çalışıp çalışmadığını tarayıcıdan görebilirsin — adresi açınca
-"telsiz-relay (PHP) calisiyor" ve veri klasörünün yazılabilir olup olmadığı
-yazar.
+Çalışıp çalışmadığını tarayıcıdan görebilirsin. Adresi açınca durum yazar;
+sonuna `?test=1` eklersen gerçek bir test yapar — uygulamanın yaptığı gibi
+bir paket gönderip karşıdan alır ve gecikmeyi ölçer:
+
+```
+https://siteniz.com/telsiz/relay.php?test=1
+```
+
+Bu test POST'un ve uzun bekleyen GET'in sunucunun Apache/PHP ayarlarından
+geçtiğini doğrular — durum sayfasının söyleyemediği şey budur.
 
 Nasıl çalışıyor: WebSocket olmadığı için ses ~200 ms'lik gruplar halinde POST
 ediliyor, dinleyenler uzun bekleyen bir GET tutuyor (sunucu yeni ses gelene

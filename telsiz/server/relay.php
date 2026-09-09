@@ -53,6 +53,106 @@ function sender_hash(): int {
 $file = channel_file();
 $me   = sender_hash();
 
+// ---- kendi kendini test eden sayfa ----
+// Durum sayfasi yalnizca PHP'nin calistigini gosteriyor. Asil merak edilen
+// POST ve uzun bekleyen GET'in bu sunucunun Apache/PHP ayarlarindan gecip
+// gecmedigi; onu ancak gercek bir istekle anlariz. Bu sayfa tarayicidan
+// tam olarak uygulamanin yaptigi seyi yapiyor.
+if (isset($_GET['test'])) {
+    header('Content-Type: text/html; charset=utf-8');
+    ?><!doctype html>
+<html lang="tr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Telsiz rölesi — test</title>
+<style>
+  body{background:#0E1116;color:#E6EAF0;font:15px/1.5 system-ui,-apple-system,sans-serif;
+       margin:0;padding:20px;max-width:600px}
+  h1{font-size:19px;margin:0 0 4px}
+  p.sub{color:#8A94A6;font-size:13px;margin:0 0 18px}
+  button{background:#1F6FEB;color:#fff;border:0;border-radius:10px;padding:14px 22px;
+         font-size:16px;font-weight:600;width:100%}
+  button:disabled{opacity:.5}
+  #log{margin-top:18px;background:#171C24;border-radius:12px;padding:14px;
+       white-space:pre-wrap;font:13px/1.6 ui-monospace,monospace;min-height:60px}
+  .ok{color:#3DDC84}.bad{color:#FF5A5F}.dim{color:#8A94A6}
+</style></head><body>
+<h1>Telsiz rölesi — test</h1>
+<p class="sub">Uygulamanın yaptığı işin aynısını yapar: ses paketi gönderir, karşıdan alır.</p>
+<button id="go">TESTİ BAŞLAT</button>
+<div id="log" class="dim">Hazır.</div>
+<script>
+const url = location.pathname;
+const log = document.getElementById('log');
+const go  = document.getElementById('go');
+let out = '';
+function say(t, cls){ out += (cls?`<span class="${cls}">${t}</span>`:t) + '\n'; log.innerHTML = out; }
+
+go.onclick = async () => {
+  go.disabled = true; out = ''; log.innerHTML = '';
+  const ch = 900 + Math.floor(Math.random()*99);
+  const A = 'test-a-' + Math.random().toString(36).slice(2,8);
+  const B = 'test-b-' + Math.random().toString(36).slice(2,8);
+  const marker = new Uint8Array(16);
+  crypto.getRandomValues(marker);
+
+  try {
+    // 1) Durum
+    say('1) Sunucu yanıt veriyor mu...');
+    const st = await fetch(url, {cache:'no-store'});
+    const txt = await st.text();
+    if (!st.ok) throw new Error('durum sayfası HTTP ' + st.status);
+    if (txt.indexOf('calisiyor') < 0) throw new Error('beklenmeyen cevap: ' + txt.slice(0,80));
+    say('   PHP çalışıyor.', 'ok');
+    if (txt.indexOf('yazilabilir: evet') < 0) {
+      say('   UYARI: veri klasörü yazılabilir değil. Klasör iznini 755 yap.', 'bad');
+    } else { say('   Veri klasörü yazılabilir.', 'ok'); }
+
+    // 2) Dinleyiciyi ac (uzun bekleyen GET), sonra gonder
+    say('2) Dinleyici açılıyor, paket gönderiliyor...');
+    const t0 = performance.now();
+    const listen = fetch(url + '?ch=' + ch + '&id=' + B, {cache:'no-store'})
+                     .then(r => r.ok ? r.arrayBuffer() : Promise.reject(new Error('GET HTTP ' + r.status)));
+    await new Promise(r => setTimeout(r, 700));
+
+    const body = new Uint8Array(2 + marker.length);
+    body[0] = 0; body[1] = marker.length;
+    body.set(marker, 2);
+    const post = await fetch(url + '?ch=' + ch + '&id=' + A,
+        {method:'POST', body:body, headers:{'Content-Type':'application/octet-stream'}, cache:'no-store'});
+    if (!post.ok) throw new Error('POST HTTP ' + post.status + ' — sunucu göndermeyi reddetti');
+    say('   Gönderme kabul edildi.', 'ok');
+
+    // 3) Geri geldi mi
+    say('3) Paket karşı tarafa ulaşıyor mu...');
+    const timeout = new Promise((_,rej) => setTimeout(() => rej(new Error('20 sn içinde gelmedi')), 20000));
+    const buf = new Uint8Array(await Promise.race([listen, timeout]));
+    const ms = Math.round(performance.now() - t0 - 700);
+
+    if (buf.length <= 8) throw new Error('cevap boş geldi — uzun bekleme çalışmıyor olabilir');
+    let found = -1;
+    for (let i = 8; i + marker.length <= buf.length; i++) {
+      let m = true;
+      for (let j = 0; j < marker.length; j++) if (buf[i+j] !== marker[j]) { m = false; break; }
+      if (m) { found = i; break; }
+    }
+    if (found < 0) throw new Error('veri geldi ama paket bozuk');
+    say('   Paket birebir ulaştı. Gecikme ~' + ms + ' ms.', 'ok');
+    say('\nRÖLE ÇALIŞIYOR ✓', 'ok');
+    say('Uygulamadaki Relay alanına şunu yaz:\n' + location.origin + url, 'dim');
+  } catch (e) {
+    say('\nBAŞARISIZ: ' + e.message, 'bad');
+    say('\nSık görülen sebepler:\n' +
+        '• POST HTTP 403 → mod_security ikili gönderiyi engelliyor,\n' +
+        '  hosting desteğinden bu dosya için kapatmalarını iste.\n' +
+        '• Cevap boş / zaman aşımı → sunucu uzun bekleyen isteği kesiyor.\n' +
+        '• yazilabilir: HAYIR → klasör iznini 755 yap.', 'dim');
+  }
+  go.disabled = false;
+};
+</script></body></html><?php
+    exit;
+}
+
 // ---- durum sayfası ----
 if (!isset($_GET['ch'])) {
     header('Content-Type: text/plain; charset=utf-8');

@@ -4,6 +4,16 @@ import android.content.Context
 import kotlin.random.Random
 
 class Prefs(ctx: Context) {
+
+    companion object {
+        /**
+         * Hazır röle. Kullanıcı hiçbir şey yazmadan internet üzerinden de
+         * konuşabilsin diye gömülü; alanı boşaltırsa yalnızca yerel ağ kalır,
+         * başka bir adres yazarsa o kullanılır.
+         */
+        const val DEFAULT_RELAY = "https://alkayazilim.com/relay.php"
+    }
+
     private val sp = ctx.applicationContext.getSharedPreferences("telsiz", Context.MODE_PRIVATE)
 
     var nick: String
@@ -15,7 +25,7 @@ class Prefs(ctx: Context) {
         set(v) = sp.edit().putInt("channel", v).apply()
 
     var relayUrl: String
-        get() = sp.getString("relay", "") ?: ""
+        get() = sp.getString("relay", DEFAULT_RELAY) ?: DEFAULT_RELAY
         set(v) = sp.edit().putString("relay", v).apply()
 
     /** Kurulum başına sabit kimlik: kendi paketlerimizi ve kopyaları elemek için. */
