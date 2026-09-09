@@ -33,6 +33,9 @@ class TelsizService : Service() {
         @Volatile var isRunning = false
     }
 
+    /** Paketin hangi taşıyıcıdan geldiği — köprüleme için gerekli. */
+    private enum class Source { LAN, RELAY }
+
     class Peer(nick: String) {
         @Volatile var nick: String = nick
         @Volatile var lastSeen: Long = System.currentTimeMillis()
@@ -65,6 +68,12 @@ class TelsizService : Service() {
         private set
     @Volatile var startError: String? = null
         private set
+    /** Köprülenen paket sayısı — arayüzde köprünün gerçekten aktığını göstermek için. */
+    @Volatile var bridged: Long = 0
+        private set
+
+    /** İki yol da ayakta: bu cihaz yerel grup ile interneti birbirine bağlıyor. */
+    val bridging: Boolean get() = relayConnected && lanError == null
 
     val lanIp: String get() = lan?.localIp ?: "-"
     val lanError: String? get() = lan?.lastError
@@ -148,7 +157,7 @@ class TelsizService : Service() {
         }
         engine = eng
 
-        lan = LanTransport(this) { buf, len -> onPacket(buf, len) }.also { it.start() }
+        lan = LanTransport(this) { buf, len -> onPacket(buf, len, Source.LAN) }.also { it.start() }
 
         // Grup kurulunca yeni bir ağ arayüzü doğuyor; LanTransport'un onu
         // beklemeden yakalaması için dürtüyoruz.
@@ -159,7 +168,7 @@ class TelsizService : Service() {
 
         val url = prefs.relayUrl.trim()
         relay = if (url.isNotEmpty()) {
-            RelayTransport(url, channel, { buf, len -> onPacket(buf, len) }, { s ->
+            RelayTransport(url, channel, { buf, len -> onPacket(buf, len, Source.RELAY) }, { s ->
                 relayStatus = s
                 updateNotification()
             }).also { it.start() }
@@ -232,7 +241,7 @@ class TelsizService : Service() {
 
     /** LAN ve relay ayrı thread'lerden çağırıyor; [parsed] paylaşılan durum. */
     @Synchronized
-    private fun onPacket(buf: ByteArray, len: Int) {
+    private fun onPacket(buf: ByteArray, len: Int, from: Source) {
         if (!Packet.parse(buf, len, parsed)) return
         if (parsed.senderId == deviceId) return          // kendi sesimiz
         if (parsed.channel != channel) return            // başka kanal
@@ -241,6 +250,16 @@ class TelsizService : Service() {
         val w = windows.getOrPut(parsed.senderId) { SeqWindow() }
         val fresh = synchronized(w) { w.accept(parsed.seq) }
         if (!fresh) return
+
+        // Köprü: iki yola da bağlıysak, birinden geleni diğerine aktarıyoruz.
+        // Böylece internetsiz bir Wi-Fi Direct grubundaki herkes, aralarında
+        // şebekesi olan tek bir kişi üzerinden dışarıyla konuşabiliyor —
+        // menzili uzatmanın donanım gerektirmeyen tek gerçek yolu bu.
+        //
+        // Döngü olmuyor: aktarma tekilleştirmeden sonra yapılıyor, yani bir
+        // cihaz aynı paketi en fazla bir kez aktarıyor. İki köprü varsa paket
+        // karşı tarafa iki kez düşer, o da alıcıda eleniyor.
+        forward(buf, len, from)
 
         val now = System.currentTimeMillis()
         when (parsed.type) {
@@ -258,6 +277,18 @@ class TelsizService : Service() {
                 p.lastSeen = now
             }
         }
+    }
+
+    private fun forward(buf: ByteArray, len: Int, from: Source) {
+        when (from) {
+            Source.LAN -> {
+                val r = relay ?: return
+                if (!r.connected) return
+                r.send(buf, len)
+            }
+            Source.RELAY -> lan?.send(buf, len)
+        }
+        bridged++
     }
 
     private fun presenceLoop() {
@@ -328,6 +359,7 @@ class TelsizService : Service() {
                 else -> append(" · Ağ yok")
             }
             if (relayEnabled) append(" · Relay ").append(if (relayConnected) "bağlı" else relayStatus)
+            if (bridging) append(" · köprü")
         }
 
         // Uygulama kaynak dosyası olmadan derlendiği için kendi ikonumuz yok;

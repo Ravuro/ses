@@ -472,7 +472,9 @@ class MainActivity : Activity() {
                 append("Ağ adı : ").append(ssid).append('\n')
                 append("Parola : ").append(svc.directPassphrase ?: "-").append('\n')
                 append("Bağlı  : ").append(svc.directClients).append(" cihaz\n\n")
-                append("Diğerleri WiFi ayarlarından bu ağa bağlansın.")
+                append("Diğerleri WiFi ayarlarından bu ağa bağlansın.\n")
+                append("Menzil ~50-100 m; açık alanda ve telefon yüksekteyken daha iyi.")
+                append(bridgeText(svc))
             }
             return
         }
@@ -481,8 +483,9 @@ class MainActivity : Activity() {
         val lanOk = svc.lanError == null && svc.lanIp != "-"
         txtDirect.text = when {
             lanOk -> "Yerel ağdasın (" + svc.lanIp + ").\n" +
-                "Aynı ağdakilerle internet olmadan konuşabilirsin.\n\n" +
-                "Ağ yoksa \"TELSİZ AĞI KUR\" ile kendi ağını yayınla."
+                "Aynı ağdakilerle internet olmadan konuşabilirsin." +
+                bridgeText(svc) +
+                "\n\nAğ yoksa \"TELSİZ AĞI KUR\" ile kendi ağını yayınla."
             !svc.directSupported() ->
                 "Ağ yok. Bu cihaz Wi-Fi Direct desteklemiyor —\n" +
                     "biri telefonundan hotspot açsın, diğerleri bağlansın."
@@ -495,6 +498,16 @@ class MainActivity : Activity() {
                     "(WiFi açık olmalı, bağlı olması gerekmiyor.)"
         }
     }
+
+    /**
+     * Köprü, menzili donanım olmadan uzatmanın tek gerçek yolu: şebekesi olan
+     * biri yerel grubu internete bağlıyor. Gerçekten aktığını görebilmek için
+     * aktarılan paket sayısını da yazıyoruz.
+     */
+    private fun bridgeText(svc: TelsizService): String =
+        if (!svc.bridging) ""
+        else "\n\n● Köprü açık — bu telefon grubu internete bağlıyor.\n" +
+            "   " + svc.bridged + " paket aktarıldı."
 
     private fun refresh() {
         val running = TelsizService.isRunning

@@ -58,6 +58,40 @@ Uygulama ağ arayüzlerini sürekli izler. WiFi kopup geri gelse, hotspot açıl
 ya da Wi-Fi Direct grubu kurulsa, soketi kendiliğinden yeniden kurar ve ses
 akmaya devam eder.
 
+## Menzil
+
+Telefon telsizi, gerçek bir telsizin menziline yazılımla ulaşamaz. Fark
+donanımda ve fizikte:
+
+| | Telefon (Wi-Fi Direct) | PMR telsiz |
+|---|---|---|
+| Frekans | 2.4 GHz | 446 MHz |
+| Verici gücü | ~0.1 W | 0.5-5 W |
+| Anten | gövde içinde, birkaç mm | ~17 cm çeyrek dalga |
+
+Frekans farkı tek başına ~15 dB, güç farkı ~13 dB. Toplam ~30 dB, yani kabaca
+30 kat menzil farkı. Ayrıca 446 MHz'in dalga boyu uzun olduğu için engelleri
+dolaşır; 2.4 GHz soğurulur. Android'de verici gücünü artıran bir API yoktur.
+
+Yazılımın yapabildiği iki şey var, ikisi de uygulamada:
+
+1. **2.4 GHz'de kalmak.** Wi-Fi Direct grubu 5 GHz yerine 2.4 GHz'de kuruluyor
+   (`setGroupOperatingBand`). Daha yavaş ama belirgin ölçüde daha uzak ve
+   duvarı daha iyi geçiyor. Telsizde hız değil mesafe önemli.
+
+2. **Köprüleme.** İki yola da bağlı olan bir cihaz, birinden gelen paketi
+   diğerine aktarıyor. Yani aralarında şebekesi olan tek bir kişi varsa,
+   internetsiz gruptaki herkes onun üzerinden dışarıyla konuşabiliyor.
+   Aktarma tekilleştirmeden sonra yapıldığı için döngü oluşmuyor: her cihaz
+   aynı paketi en fazla bir kez aktarır.
+
+   Donanım eklemeden menzili gerçekten uzatmanın tek yolu bu — çünkü baz
+   istasyonunun anteni ve gücü senin telefonunda olmayan şey.
+
+Pratik olarak: grup sahibi telefonu yükseğe koy, araya duvar/metal sokma,
+açık alanda ~50-100 m bekle. Kilometrelerce menzil isteniyorsa cevap
+donanımdır — telefon o işi yapamaz.
+
 ## Relay sunucusu (internet için)
 
 `server/` altında tek dosyalık bir WebSocket rölesi var. Sesi çözmez ve

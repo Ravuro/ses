@@ -106,6 +106,10 @@ class WifiDirect(
                     .setNetworkName(NETWORK_NAME)
                     .setPassphrase(PASSPHRASE)
                     .enablePersistentMode(false)
+                    // 2.4 GHz'de kal. 5 GHz daha hızlı ama menzili belirgin
+                    // ölçüde kısa ve duvarı çok daha kötü geçiyor; telsizde
+                    // hız değil mesafe önemli.
+                    .setGroupOperatingBand(WifiP2pConfig.GROUP_OWNER_BAND_2GHZ)
                     .build()
                 m.createGroup(c, cfg, listener)
             } else {
