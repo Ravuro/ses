@@ -28,6 +28,11 @@ class Prefs(ctx: Context) {
         get() = sp.getString("relay", DEFAULT_RELAY) ?: DEFAULT_RELAY
         set(v) = sp.edit().putString("relay", v).apply()
 
+    /** Ses tuşuyla bas-konuş (uygulama ekrandayken). */
+    var volumePtt: Boolean
+        get() = sp.getBoolean("volumePtt", true)
+        set(v) = sp.edit().putBoolean("volumePtt", v).apply()
+
     /** Kurulum başına sabit kimlik: kendi paketlerimizi ve kopyaları elemek için. */
     val deviceId: Long
         get() {

@@ -47,7 +47,13 @@ Android 8.0 ve üstü gerekir.
 2. İnternet üzerinden de konuşacaksan **Relay** adresini gir (aşağıya bak).
    Boş bırakırsan sadece WiFi/hotspot üzerinden çalışır.
 3. **BAŞLAT**'a bas, mikrofon iznini ver.
-4. Büyük mavi düğmeyi **basılı tutarak** konuş, bırakınca dinle.
+4. Büyük düğmeyi **basılı tutarak** konuş, bırakınca dinle. Uygulama
+   ekrandayken **ses yükseltme tuşunu** basılı tutmak da aynı işi yapar —
+   ekrana bakmadan konuşabilmek için. Ses kısma tuşu ses ayarı olarak kalır.
+   İstemezsen ayarlardan kapatabilirsin.
+
+Ekran iki durumlu: kapalıyken ayarlar görünür, açıldığında yerine bağlantı
+durumu ve kanaldakiler gelir.
 
 Uygulama arka plandayken ve ekran kapalıyken de dinlemeye devam eder
 (bildirimden kapatabilirsin).

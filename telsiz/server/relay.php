@@ -65,19 +65,37 @@ if (isset($_GET['test'])) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Telsiz rölesi — test</title>
 <style>
-  body{background:#0E1116;color:#E6EAF0;font:15px/1.5 system-ui,-apple-system,sans-serif;
-       margin:0;padding:20px;max-width:600px}
-  h1{font-size:19px;margin:0 0 4px}
-  p.sub{color:#8A94A6;font-size:13px;margin:0 0 18px}
-  button{background:#1F6FEB;color:#fff;border:0;border-radius:10px;padding:14px 22px;
-         font-size:16px;font-weight:600;width:100%}
-  button:disabled{opacity:.5}
-  #log{margin-top:18px;background:#171C24;border-radius:12px;padding:14px;
-       white-space:pre-wrap;font:13px/1.6 ui-monospace,monospace;min-height:60px}
-  .ok{color:#3DDC84}.bad{color:#FF5A5F}.dim{color:#8A94A6}
+  :root{--bg:#0B0E14;--card:#141922;--card2:#1B2230;--line:#232B39;
+        --tx:#EAEEF5;--mut:#7C8798;--ok:#3DDC84;--bad:#F87171;--blue:#3B82F6}
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--tx);margin:0;padding:24px 18px 40px;
+       font:16px/1.55 -apple-system,system-ui,"Segoe UI",Roboto,sans-serif;
+       max-width:620px;margin-inline:auto;-webkit-text-size-adjust:100%}
+  .badge{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.16em;
+         color:var(--mut);border:1px solid var(--line);border-radius:999px;
+         padding:5px 12px;margin-bottom:14px}
+  h1{font-size:24px;line-height:1.25;margin:0 0 6px;letter-spacing:-.01em}
+  p.sub{color:var(--mut);font-size:14px;margin:0 0 22px}
+  button{background:var(--blue);color:#fff;border:0;border-radius:14px;
+         padding:17px 22px;font-size:16px;font-weight:700;width:100%;
+         letter-spacing:.04em;cursor:pointer;transition:opacity .15s,transform .1s}
+  button:active{transform:scale(.985)}
+  button:disabled{opacity:.45}
+  #log{margin-top:18px;background:var(--card);border:1px solid var(--line);
+       border-radius:16px;padding:18px;min-height:64px;
+       font:13.5px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;
+       white-space:pre-wrap;word-break:break-word}
+  .ok{color:var(--ok)}.bad{color:var(--bad)}.dim{color:var(--mut)}
+  .big{display:block;font-size:17px;font-weight:700;letter-spacing:.04em;
+       margin-top:14px;font-family:-apple-system,system-ui,sans-serif}
+  .spin{display:inline-block;width:11px;height:11px;border-radius:50%;
+        border:2px solid var(--line);border-top-color:var(--blue);
+        animation:r .7s linear infinite;vertical-align:-1px;margin-right:6px}
+  @keyframes r{to{transform:rotate(360deg)}}
 </style></head><body>
-<h1>Telsiz rölesi — test</h1>
-<p class="sub">Uygulamanın yaptığı işin aynısını yapar: ses paketi gönderir, karşıdan alır.</p>
+<div class="badge">TELSİZ</div>
+<h1>Röle testi</h1>
+<p class="sub">Uygulamanın yaptığı işin aynısını yapar: ses paketi gönderir, karşı taraftan geri alır, gecikmeyi ölçer.</p>
 <button id="go">TESTİ BAŞLAT</button>
 <div id="log" class="dim">Hazır.</div>
 <script>
@@ -89,6 +107,7 @@ function say(t, cls){ out += (cls?`<span class="${cls}">${t}</span>`:t) + '\n'; 
 
 go.onclick = async () => {
   go.disabled = true; out = ''; log.innerHTML = '';
+  go.textContent = 'ÇALIŞIYOR…';
   const ch = 900 + Math.floor(Math.random()*99);
   const A = 'test-a-' + Math.random().toString(36).slice(2,8);
   const B = 'test-b-' + Math.random().toString(36).slice(2,8);
@@ -137,10 +156,10 @@ go.onclick = async () => {
     }
     if (found < 0) throw new Error('veri geldi ama paket bozuk');
     say('   Paket birebir ulaştı. Gecikme ~' + ms + ' ms.', 'ok');
-    say('\nRÖLE ÇALIŞIYOR ✓', 'ok');
+    say('<span class="big">RÖLE ÇALIŞIYOR ✓</span>', 'ok');
     say('Uygulamadaki Relay alanına şunu yaz:\n' + location.origin + url, 'dim');
   } catch (e) {
-    say('\nBAŞARISIZ: ' + e.message, 'bad');
+    say('<span class="big">BAŞARISIZ</span>' + e.message, 'bad');
     say('\nSık görülen sebepler:\n' +
         '• POST HTTP 403 → mod_security ikili gönderiyi engelliyor,\n' +
         '  hosting desteğinden bu dosya için kapatmalarını iste.\n' +
@@ -148,6 +167,7 @@ go.onclick = async () => {
         '• yazilabilir: HAYIR → klasör iznini 755 yap.', 'dim');
   }
   go.disabled = false;
+  go.textContent = 'TEKRAR TEST ET';
 };
 </script></body></html><?php
     exit;
