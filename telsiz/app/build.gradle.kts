@@ -9,16 +9,22 @@ android {
 
     defaultConfig {
         applicationId = "com.ravuro.telsiz"
-        minSdk = 24
-        targetSdk = 35
+        // 26: bildirim kanalları ve Notification.Builder çerçevede hazır,
+        // uyumluluk kütüphanesine gerek kalmıyor.
+        minSdk = 26
+        targetSdk = 28
         versionCode = 1
         versionName = "1.0"
+    }
+
+    buildFeatures {
+        // Uygulamada res/ yok: arayüz koddan kuruluyor.
+        resValues = false
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Debug anahtarıyla imzalanır: kurulabilir bir APK çıkması için yeterli.
             signingConfig = signingConfigs.getByName("debug")
         }
     }
@@ -32,8 +38,7 @@ android {
     }
 }
 
+// Bağımlılık yok: androidx ve okhttp yerine çerçeve API'leri ve
+// elde yazılmış WebSocket istemcisi kullanılıyor.
 dependencies {
-    implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.appcompat:appcompat:1.7.0")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }

@@ -7,12 +7,9 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ServiceInfo
 import android.os.Binder
-import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
-import androidx.core.app.NotificationCompat
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -101,9 +98,8 @@ class TelsizService : Service() {
         channel = prefs.channel.coerceIn(1, 999)
         nick = prefs.nick.ifBlank { "Telsiz-" + (deviceId and 0xFFF).toString(16) }
 
-        if (androidx.core.content.ContextCompat.checkSelfPermission(
-                this, android.Manifest.permission.RECORD_AUDIO
-            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+            != android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
             // Android 14+ mikrofon tipli foreground servisi izinsiz başlatınca
             // SecurityException atıyor; çökmek yerine hatayı bildir.
@@ -275,7 +271,6 @@ class TelsizService : Service() {
     // ---- bildirim ----
 
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = getSystemService(NotificationManager::class.java)
         if (nm.getNotificationChannel(CHANNEL_ID) != null) return
         val ch = NotificationChannel(CHANNEL_ID, "Telsiz durumu", NotificationManager.IMPORTANCE_LOW)
@@ -303,25 +298,22 @@ class TelsizService : Service() {
             if (relayEnabled) append(" · Relay ").append(if (relayConnected) "bağlı" else relayStatus)
         }
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notif)
+        // Uygulama kaynak dosyası olmadan derlendiği için kendi ikonumuz yok;
+        // çerçevenin mikrofon ikonunu kullanıyoruz.
+        @Suppress("DEPRECATION")
+        return Notification.Builder(this, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentTitle(if (transmitting) "Konuşuyorsun" else "Telsiz açık")
             .setContentText(line)
             .setOngoing(true)
-            .setSilent(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOnlyAlertOnce(true)
             .setContentIntent(open)
-            .addAction(0, "Kapat", stop)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Kapat", stop)
             .build()
     }
 
     private fun startForegroundCompat() {
-        val n = buildNotification()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
-        } else {
-            startForeground(NOTIF_ID, n)
-        }
+        startForeground(NOTIF_ID, buildNotification())
     }
 
     private fun updateNotification() {
@@ -333,12 +325,7 @@ class TelsizService : Service() {
         }
     }
 
-    @Suppress("DEPRECATION")
     private fun stopForegroundCompat() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-        } else {
-            stopForeground(true)
-        }
+        stopForeground(STOP_FOREGROUND_REMOVE)
     }
 }

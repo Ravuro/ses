@@ -1,27 +1,52 @@
 package com.ravuro.telsiz
 
 import android.Manifest
+import android.app.Activity
 import android.content.ComponentName
 import android.content.Intent
 import android.content.ServiceConnection
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
-import android.os.Build
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.StateListDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.text.InputType
+import android.util.TypedValue
+import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
 
-class MainActivity : AppCompatActivity() {
+/**
+ * Arayüz tamamen koddan kuruluyor: uygulama Android SDK'sı olmadan
+ * derlendiği için kaynak (res/) dosyası yok.
+ */
+class MainActivity : Activity() {
+
+    private companion object {
+        const val REQ_MIC = 1
+
+        const val BG = 0xFF0E1116.toInt()
+        const val PANEL = 0xFF171C24.toInt()
+        const val FIELD = 0xFF0B0E13.toInt()
+        const val BORDER = 0xFF2A313D.toInt()
+        const val TEXT = 0xFFE6EAF0.toInt()
+        const val MUTED = 0xFF8A94A6.toInt()
+        const val ACCENT = 0xFF3DDC84.toInt()
+        const val PTT = 0xFF1F6FEB.toInt()
+    }
 
     private lateinit var prefs: Prefs
 
@@ -39,9 +64,6 @@ class MainActivity : AppCompatActivity() {
     private var bindRequested = false
     private val ui = Handler(Looper.getMainLooper())
 
-    /** İzin verilir verilmez başlatmak için: kullanıcı iki kez basmasın. */
-    private var startAfterPermission = false
-
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             service = (binder as? TelsizService.LocalBinder)?.service
@@ -54,67 +76,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private val permissionLauncher = registerForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
-    ) { result ->
-        val micOk = result[Manifest.permission.RECORD_AUDIO] != false
-        if (!micOk) {
-            startAfterPermission = false
-            Toast.makeText(this, "Mikrofon izni olmadan telsiz çalışmaz", Toast.LENGTH_LONG).show()
-            return@registerForActivityResult
-        }
-        if (startAfterPermission) {
-            startAfterPermission = false
-            startSession()
-        }
-    }
+    // ---- yaşam döngüsü ----
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        window.statusBarColor = BG
 
         prefs = Prefs(this)
-
-        edtNick = findViewById(R.id.edtNick)
-        edtChannel = findViewById(R.id.edtChannel)
-        edtRelay = findViewById(R.id.edtRelay)
-        btnPower = findViewById(R.id.btnPower)
-        btnPtt = findViewById(R.id.btnPtt)
-        txtNet = findViewById(R.id.txtNet)
-        txtStatus = findViewById(R.id.txtStatus)
-        txtPeers = findViewById(R.id.txtPeers)
-        txtTalking = findViewById(R.id.txtTalking)
+        setContentView(buildUi())
 
         edtNick.setText(prefs.nick)
         edtChannel.setText(prefs.channel.toString())
         edtRelay.setText(prefs.relayUrl)
-
-        btnPower.setOnClickListener {
-            if (TelsizService.isRunning) stopSession() else requestAndStart()
-        }
-
-        btnPtt.setOnTouchListener { v, ev ->
-            when (ev.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    if (!TelsizService.isRunning) {
-                        Toast.makeText(this, "Önce BAŞLAT'a bas", Toast.LENGTH_SHORT).show()
-                    } else {
-                        v.isPressed = true
-                        v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                        service?.startTx()
-                    }
-                    true
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    v.isPressed = false
-                    service?.stopTx()
-                    v.performClick()
-                    true
-                }
-                else -> false
-            }
-        }
     }
 
     override fun onStart() {
@@ -129,7 +104,255 @@ class MainActivity : AppCompatActivity() {
         unbind()
     }
 
-    /** Servis ayakta değilse bağlanma isteği başarısız olur; bu normal. */
+    private val tick = object : Runnable {
+        override fun run() {
+            refresh()
+            ui.postDelayed(this, 400)
+        }
+    }
+
+    // ---- arayüz kurulumu ----
+
+    private fun dp(v: Int): Int = TypedValue.applyDimension(
+        TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics
+    ).toInt()
+
+    private fun rounded(color: Int, radiusDp: Int, strokeColor: Int? = null): GradientDrawable =
+        GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(color)
+            cornerRadius = dp(radiusDp).toFloat()
+            if (strokeColor != null) setStroke(dp(1), strokeColor)
+        }
+
+    private fun label(text: String) = TextView(this).apply {
+        this.text = text
+        setTextColor(MUTED)
+        textSize = 12f
+        setPadding(0, dp(10), 0, dp(4))
+    }
+
+    private fun field(hint: String, inputType: Int, maxLen: Int) = EditText(this).apply {
+        this.hint = hint
+        setHintTextColor(0xFF5A6472.toInt())
+        setTextColor(TEXT)
+        textSize = 15f
+        this.inputType = inputType
+        setSingleLine(true)
+        background = rounded(FIELD, 10, BORDER)
+        setPadding(dp(12), dp(10), dp(12), dp(10))
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46))
+        if (maxLen > 0) filters = arrayOf(android.text.InputFilter.LengthFilter(maxLen))
+    }
+
+    private fun panel() = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        background = rounded(PANEL, 14)
+        setPadding(dp(14), dp(4), dp(14), dp(14))
+    }
+
+    private fun buildUi(): View {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(BG)
+            fitsSystemWindows = true
+        }
+
+        // Başlık
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(16), dp(16), dp(12))
+        }
+        header.addView(TextView(this).apply {
+            text = "TELSİZ"
+            setTextColor(TEXT)
+            textSize = 22f
+            letterSpacing = 0.15f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        txtNet = TextView(this).apply {
+            text = "kapalı"
+            setTextColor(MUTED)
+            textSize = 13f
+        }
+        header.addView(txtNet)
+        root.addView(header)
+
+        // Kaydırılabilir orta bölüm
+        val scroll = ScrollView(this).apply {
+            setPadding(dp(16), 0, dp(16), 0)
+            clipToPadding = false
+            isFillViewport = false
+        }
+        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+
+        val settings = panel()
+        settings.addView(label("Adın"))
+        edtNick = field("Adın", InputType.TYPE_TEXT_VARIATION_PERSON_NAME, 16)
+        settings.addView(edtNick)
+
+        settings.addView(label("Kanal (1-999)"))
+        edtChannel = field("1", InputType.TYPE_CLASS_NUMBER, 3)
+        settings.addView(edtChannel)
+
+        settings.addView(label("Relay sunucusu — boşsa sadece WiFi/hotspot"))
+        edtRelay = field("wss://sunucun.onrender.com", InputType.TYPE_TEXT_VARIATION_URI, 0)
+        settings.addView(edtRelay)
+        content.addView(settings)
+
+        btnPower = Button(this).apply {
+            text = "BAŞLAT"
+            setTextColor(TEXT)
+            textSize = 15f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            letterSpacing = 0.1f
+            background = rounded(0xFF252C38.toInt(), 10)
+            stateListAnimator = null
+            setOnClickListener {
+                if (TelsizService.isRunning) stopSession() else requestAndStart()
+            }
+        }
+        content.addView(btnPower, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(52)
+        ).apply { topMargin = dp(14) })
+
+        val statusPanel = panel().apply { setPadding(dp(14), dp(14), dp(14), dp(14)) }
+        txtStatus = TextView(this).apply {
+            text = "Kapalı"
+            setTextColor(MUTED)
+            textSize = 13f
+            typeface = android.graphics.Typeface.MONOSPACE
+            setLineSpacing(dp(4).toFloat(), 1f)
+        }
+        statusPanel.addView(txtStatus)
+        txtPeers = TextView(this).apply {
+            text = "Kanalda kimse yok"
+            setTextColor(TEXT)
+            textSize = 14f
+            setPadding(0, dp(10), 0, 0)
+            setLineSpacing(dp(4).toFloat(), 1f)
+        }
+        statusPanel.addView(txtPeers)
+        content.addView(statusPanel, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(14); bottomMargin = dp(16) })
+
+        scroll.addView(content)
+        root.addView(scroll, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
+        ))
+
+        // Konuşan göstergesi
+        txtTalking = TextView(this).apply {
+            text = ""
+            setTextColor(ACCENT)
+            textSize = 15f
+            gravity = Gravity.CENTER
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, 0, 0, dp(8))
+        }
+        root.addView(txtTalking, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+
+        // Bas-konuş
+        val pttWrap = LinearLayout(this).apply {
+            gravity = Gravity.CENTER
+            setPadding(0, dp(4), 0, dp(28))
+        }
+        btnPtt = Button(this).apply {
+            text = "BAS\nKONUŞ"
+            setTextColor(Color.WHITE)
+            textSize = 20f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            background = pttBackground()
+            stateListAnimator = null
+            setOnTouchListener { v, ev ->
+                when (ev.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        if (!TelsizService.isRunning) {
+                            toast("Önce BAŞLAT'a bas")
+                        } else {
+                            v.isPressed = true
+                            v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                            service?.startTx()
+                        }
+                        true
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        v.isPressed = false
+                        service?.stopTx()
+                        v.performClick()
+                        true
+                    }
+                    else -> false
+                }
+            }
+        }
+        pttWrap.addView(btnPtt, LinearLayout.LayoutParams(dp(180), dp(180)))
+        root.addView(pttWrap, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+
+        return root
+    }
+
+    private fun pttBackground(): StateListDrawable {
+        fun circle(color: Int) = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(color)
+        }
+        return StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_pressed), circle(ACCENT))
+            addState(intArrayOf(), circle(PTT))
+        }
+    }
+
+    private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
+
+    // ---- oturum ----
+
+    private fun requestAndStart() {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_MIC)
+            return
+        }
+        startSession()
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != REQ_MIC) return
+        if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            startSession()
+        } else {
+            Toast.makeText(this, "Mikrofon izni olmadan telsiz çalışmaz", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun startSession() {
+        prefs.nick = edtNick.text.toString().trim()
+        prefs.channel = (edtChannel.text.toString().toIntOrNull() ?: 1).coerceIn(1, 999)
+        prefs.relayUrl = edtRelay.text.toString().trim()
+        edtChannel.setText(prefs.channel.toString())
+
+        startForegroundService(Intent(this, TelsizService::class.java))
+        bind()
+        refresh()
+    }
+
+    private fun stopSession() {
+        service?.stopTx()
+        unbind()
+        stopService(Intent(this, TelsizService::class.java))
+        refresh()
+    }
+
     private fun bind() {
         if (bindRequested) return
         bindRequested = try {
@@ -146,53 +369,7 @@ class MainActivity : AppCompatActivity() {
         try { unbindService(connection) } catch (_: Exception) {}
     }
 
-    private val tick = object : Runnable {
-        override fun run() {
-            refresh()
-            ui.postDelayed(this, 400)
-        }
-    }
-
-    // ---- oturum ----
-
-    private fun requestAndStart() {
-        val need = ArrayList<String>()
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-            != PackageManager.PERMISSION_GRANTED
-        ) need.add(Manifest.permission.RECORD_AUDIO)
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-            != PackageManager.PERMISSION_GRANTED
-        ) need.add(Manifest.permission.POST_NOTIFICATIONS)
-
-        if (need.isEmpty()) {
-            startSession()
-        } else {
-            startAfterPermission = true
-            permissionLauncher.launch(need.toTypedArray())
-        }
-    }
-
-    private fun startSession() {
-        prefs.nick = edtNick.text.toString().trim()
-        prefs.channel = (edtChannel.text.toString().toIntOrNull() ?: 1).coerceIn(1, 999)
-        prefs.relayUrl = edtRelay.text.toString().trim()
-        edtChannel.setText(prefs.channel.toString())
-
-        ContextCompat.startForegroundService(this, Intent(this, TelsizService::class.java))
-        bind()
-        refresh()
-    }
-
-    private fun stopSession() {
-        service?.stopTx()
-        unbind()
-        stopService(Intent(this, TelsizService::class.java))
-        refresh()
-    }
-
-    // ---- arayüz tazeleme ----
+    // ---- durum tazeleme ----
 
     private fun refresh() {
         val running = TelsizService.isRunning
@@ -201,8 +378,10 @@ class MainActivity : AppCompatActivity() {
         btnPower.text = if (running) "DURDUR" else "BAŞLAT"
         btnPtt.isEnabled = running
         btnPtt.alpha = if (running) 1f else 0.4f
-
-        setFieldsEnabled(!running)
+        for (v in arrayOf<View>(edtNick, edtChannel, edtRelay)) {
+            v.isEnabled = !running
+            v.alpha = if (running) 0.5f else 1f
+        }
 
         if (!running) {
             txtNet.text = "kapalı"
@@ -218,12 +397,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         val lanOk = svc.lanError == null
-        val relayTxt = when {
-            !svc.relayEnabled -> "yok"
-            svc.relayConnected -> "bağlı"
-            else -> svc.relayStatus
-        }
-
         txtNet.text = buildString {
             append("K").append(svc.currentChannel())
             append(if (lanOk) " · LAN✓" else " · LAN✗")
@@ -231,31 +404,27 @@ class MainActivity : AppCompatActivity() {
         }
 
         txtStatus.text = buildString {
-            append("Ad     : ").append(svc.currentNick()).append('\n')
-            append("Kanal  : ").append(svc.currentChannel()).append('\n')
-            append("WiFi   : ").append(if (lanOk) svc.lanIp else (svc.lanError ?: "hata")).append('\n')
-            append("Relay  : ").append(relayTxt)
+            append("Ad    : ").append(svc.currentNick()).append('\n')
+            append("Kanal : ").append(svc.currentChannel()).append('\n')
+            append("WiFi  : ").append(if (lanOk) svc.lanIp else (svc.lanError ?: "hata")).append('\n')
+            append("Relay : ").append(
+                when {
+                    !svc.relayEnabled -> "yok"
+                    svc.relayConnected -> "bağlı"
+                    else -> svc.relayStatus
+                }
+            )
         }
 
         val peers = svc.peerList()
-        txtPeers.text = if (peers.isEmpty()) {
-            "Kanalda kimse yok"
-        } else {
-            "Kanalda " + peers.size + " kişi:\n" + peers.joinToString("\n") { "• " + it.nick }
-        }
+        txtPeers.text = if (peers.isEmpty()) "Kanalda kimse yok"
+        else "Kanalda " + peers.size + " kişi:\n" + peers.joinToString("\n") { "• " + it.nick }
 
         val talking = svc.talkingNow()
         txtTalking.text = when {
             svc.transmitting -> "● GÖNDERİYORSUN"
             talking.isNotEmpty() -> "🔊 " + talking.joinToString(", ") + " konuşuyor"
             else -> ""
-        }
-    }
-
-    private fun setFieldsEnabled(enabled: Boolean) {
-        for (v in arrayOf<View>(edtNick, edtChannel, edtRelay)) {
-            v.isEnabled = enabled
-            v.alpha = if (enabled) 1f else 0.5f
         }
     }
 }

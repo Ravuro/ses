@@ -17,9 +17,10 @@ yoldan da gelirse sıra numarasıyla elenir, ses iki kez duyulmaz.
 
 APK'yı indir ve kur:
 
-**https://github.com/Ravuro/ses/releases/download/telsiz-latest/telsiz.apk**
+**https://raw.githubusercontent.com/Ravuro/ses/refs/heads/claude/walkie-talkie-apk-build-6orj8f/telsiz.apk**
 
 Telefon "bilinmeyen kaynak" uyarısı verirse tarayıcıya kurulum izni ver.
+Android 8.0 ve üstü gerekir.
 
 ## Kullanım
 
@@ -58,6 +59,9 @@ alanına `wss://<uygulama-adın>.onrender.com` yaz.
 
 ## Teknik
 
+- Hiç harici bağımlılık yok: androidx, okhttp vb. kullanılmıyor. WebSocket
+  istemcisi (`WebSocketClient.kt`) elde yazıldı.
+- `res/` klasörü yok; arayüz koddan kuruluyor.
 - 16 kHz mono ses, **IMA ADPCM** ile 4:1 sıkıştırma → ~64 kbps.
 - Her paket bağımsız kodlanır: kaybolan bir UDP paketi sonrakileri bozmaz.
 - 40 ms'lik parçalar; gönderen başına jitter tamponu, aynı anda konuşanlar
@@ -68,10 +72,33 @@ alanına `wss://<uygulama-adın>.onrender.com` yaz.
 
 ## Derleme
 
-APK'yı GitHub Actions derliyor (`.github/workflows/telsiz-apk.yml`).
-Yerelde derlemek için Android SDK ile:
+Android SDK'sı olan bir makinede normal yol:
 
 ```bash
 cd telsiz
 ./gradlew assembleRelease
 ```
+
+### SDK olmadan derleme
+
+Bu APK, Google'ın sunucularına (`dl.google.com`, `maven.google.com`)
+erişilemeyen bir ortamda derlendi — yani Android SDK, `aapt2`, `d8` ve
+`androidx` indirilemiyordu. `build-nosdk.sh` bu kısıt altında çalışır:
+
+| Normalde | Burada |
+|----------|--------|
+| Android SDK | `android.jar` (yalnız derleme stub'ları) |
+| `aapt2` | `buildtools/AxmlEncoder.java` — manifesti ikili AXML'e çeviren kendi kodlayıcımız |
+| `d8` | `dx` (Maven Central'daki repackage) |
+| `apksigner` | `apksig` kütüphanesi, v2 şeması |
+
+```bash
+cd telsiz
+./build-nosdk.sh        # araçları indirir, telsiz.apk üretir
+```
+
+Uygulamanın hiç bağımlılığı ve kaynak dosyası olmaması bunu mümkün kılan
+şey: `aapt2` gerekmiyor, çünkü derlenecek kaynak yok.
+
+İmza anahtarı depoda değil. Betiği yeniden çalıştırırsan yeni bir anahtar
+üretilir ve imza değişir; o durumda telefondaki eski sürümü önce kaldır.

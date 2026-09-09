@@ -1,43 +1,27 @@
 package com.ravuro.telsiz
 
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.Response
-import okhttp3.WebSocket
-import okhttp3.WebSocketListener
-import okio.ByteString
-import okio.ByteString.Companion.toByteString
-import java.util.concurrent.TimeUnit
-
 /**
- * İnternet yolu: aynı kanaldaki herkesi birbirine bağlayan basit bir
- * WebSocket relay'i (telsiz/server/). Bağlantı koparsa artan gecikmeyle
- * kendi kendine yeniden bağlanır — LAN yolu bu sırada çalışmaya devam eder.
+ * İnternet yolu: aynı kanaldaki herkesi birbirine bağlayan WebSocket rölesi
+ * (telsiz/server/). Bağlantı koparsa artan gecikmeyle kendi kendine yeniden
+ * bağlanır; bu sırada LAN yolu çalışmaya devam ettiği için aynı ağdakiler
+ * kesintiyi hissetmez.
  */
 class RelayTransport(
     rawUrl: String,
-    private val channel: Int,
+    channel: Int,
     private val onPacket: (ByteArray, Int) -> Unit,
     private val onState: (String) -> Unit
 ) {
     private val url: String = normalize(rawUrl, channel)
 
-    private val client = OkHttpClient.Builder()
-        .pingInterval(20, TimeUnit.SECONDS)
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(true)
-        .build()
-
     @Volatile private var running = false
-    @Volatile private var ws: WebSocket? = null
+    @Volatile private var ws: WebSocketClient? = null
+    private var thread: Thread? = null
+
     @Volatile var connected = false
         private set
     @Volatile var status: String = "kapalı"
         private set
-
-    private var backoffMs = 1000L
-    private var thread: Thread? = null
-    private val lock = Object()
 
     fun start() {
         if (running) return
@@ -47,59 +31,53 @@ class RelayTransport(
 
     fun stop() {
         running = false
-        try { ws?.close(1000, null) } catch (_: Exception) {}
+        try { ws?.close() } catch (_: Exception) {}
         ws = null
         connected = false
-        setStatus("kapalı")
-        synchronized(lock) { lock.notifyAll() }
         thread?.interrupt()
         thread = null
+        setStatus("kapalı")
     }
 
     fun send(data: ByteArray, len: Int) {
-        val socket = ws ?: return
         if (!connected) return
         try {
-            socket.send(data.copyOf(len).toByteString())
+            ws?.sendBinary(data, len)
         } catch (_: Exception) {
+            // readLoop kopmayı zaten görecek ve yeniden bağlanacak.
         }
     }
 
     private fun supervise() {
-        var first = true
+        var backoff = 1000L
         while (running) {
-            if (!first) {
-                // Denemeler arası bekleme burada: aksi halde onFailure'ın
-                // uyandırması yüzünden hiç beklemeden yeniden denerdik.
-                if (!sleep(backoffMs)) return
+            val client = WebSocketClient(url, object : WebSocketClient.Listener {
+                override fun onBinary(data: ByteArray) = onPacket(data, data.size)
+            })
+            try {
+                setStatus("bağlanıyor")
+                client.connect()
+                ws = client
+                connected = true
+                backoff = 1000L
+                setStatus("bağlı")
+                client.readLoop()          // kopana kadar burada bekler
+                setStatus("koptu")
+            } catch (e: Exception) {
+                setStatus(shortError(e))
+            } finally {
+                connected = false
+                try { client.close() } catch (_: Exception) {}
+                if (ws === client) ws = null
             }
-            first = false
-
-            connected = false
-            setStatus("bağlanıyor")
-            connect()
-
-            // Sonucu bekle — onOpen/onFailure uyandırıyor.
-            synchronized(lock) {
-                try { lock.wait(15000) } catch (_: InterruptedException) { return }
-            }
-            if (!running) return
-
-            if (connected) {
-                backoffMs = 1000L
-                // Kopana kadar uyu.
-                synchronized(lock) {
-                    while (running && connected) {
-                        try { lock.wait(5000) } catch (_: InterruptedException) { return }
-                    }
-                }
-            } else {
-                backoffMs = (backoffMs * 2).coerceAtMost(15000L)
-            }
+            if (!running) break
+            if (!sleep(backoff)) break
+            backoff = (backoff * 2).coerceAtMost(15000L)
         }
+        setStatus("kapalı")
     }
 
-    /** Beklemeyi bölerek durdurma isteğine hızlı cevap verir. */
+    /** Beklerken durdurma isteğine hızlı cevap verebilmek için parçalı uyku. */
     private fun sleep(ms: Long): Boolean {
         val until = System.currentTimeMillis() + ms
         while (running) {
@@ -110,38 +88,14 @@ class RelayTransport(
         return false
     }
 
-    private fun connect() {
-        try { ws?.cancel() } catch (_: Exception) {}
-        val req = Request.Builder().url(url).build()
-        ws = client.newWebSocket(req, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
-                connected = true
-                setStatus("bağlı")
-                synchronized(lock) { lock.notifyAll() }
-            }
-
-            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                val arr = bytes.toByteArray()
-                onPacket(arr, arr.size)
-            }
-
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                connected = false
-                setStatus("hata: " + (t.message ?: "bağlanamadı"))
-                synchronized(lock) { lock.notifyAll() }
-            }
-
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                connected = false
-                setStatus("kapandı")
-                synchronized(lock) { lock.notifyAll() }
-            }
-        })
-    }
-
     private fun setStatus(s: String) {
         status = s
         onState(s)
+    }
+
+    private fun shortError(e: Exception): String {
+        val m = e.message
+        return if (m.isNullOrBlank()) "bağlanamadı" else "hata: " + m.take(40)
     }
 
     private fun normalize(raw: String, ch: Int): String {

@@ -7,3 +7,5 @@ captures/
 .externalNativeBuild/
 .cxx/
 node_modules/
+.nosdk/
+*.p12
