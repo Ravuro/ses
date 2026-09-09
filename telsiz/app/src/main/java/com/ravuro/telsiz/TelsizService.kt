@@ -51,7 +51,7 @@ class TelsizService : Service() {
     private lateinit var prefs: Prefs
     private var engine: AudioEngine? = null
     private var lan: LanTransport? = null
-    private var relay: RelayTransport? = null
+    private var relay: RelayLink? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var presenceThread: Thread? = null
     private var direct: WifiDirect? = null
@@ -168,10 +168,7 @@ class TelsizService : Service() {
 
         val url = prefs.relayUrl.trim()
         relay = if (url.isNotEmpty()) {
-            RelayTransport(url, channel, { buf, len -> onPacket(buf, len, Source.RELAY) }, { s ->
-                relayStatus = s
-                updateNotification()
-            }).also { it.start() }
+            createRelay(url).also { it.start() }
         } else {
             relayStatus = "ayarlı değil"
             null
@@ -183,6 +180,24 @@ class TelsizService : Service() {
         isRunning = true
         startError = null
         updateNotification()
+    }
+
+    /**
+     * Adresin şeması taşıyıcıyı belirliyor: http(s) verilirse paylaşımlı
+     * hosting'deki PHP rölesi, ws(s) verilirse WebSocket sunucusu.
+     */
+    private fun createRelay(url: String): RelayLink {
+        val onPkt: (ByteArray, Int) -> Unit = { buf, len -> onPacket(buf, len, Source.RELAY) }
+        val onState: (String) -> Unit = { s ->
+            relayStatus = s
+            updateNotification()
+        }
+        val lower = url.lowercase()
+        return if (lower.startsWith("http://") || lower.startsWith("https://")) {
+            HttpRelayTransport(url, channel, deviceId, onPkt, onState)
+        } else {
+            RelayTransport(url, channel, onPkt, onState)
+        }
     }
 
     private fun stopSession() {

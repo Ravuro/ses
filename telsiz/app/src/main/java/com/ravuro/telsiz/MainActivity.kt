@@ -213,7 +213,7 @@ class MainActivity : Activity() {
         settings.addView(edtChannel)
 
         settings.addView(label("Relay sunucusu — boşsa sadece WiFi/hotspot"))
-        edtRelay = field("wss://sunucun.onrender.com", InputType.TYPE_TEXT_VARIATION_URI, 0)
+        edtRelay = field("https://siteniz.com/telsiz/relay.php", InputType.TYPE_TEXT_VARIATION_URI, 0)
         settings.addView(edtRelay)
         content.addView(settings)
 

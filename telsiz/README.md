@@ -94,22 +94,45 @@ donanımdır — telefon o işi yapamaz.
 
 ## Relay sunucusu (internet için)
 
-`server/` altında tek dosyalık bir WebSocket rölesi var. Sesi çözmez ve
-kaydetmez; paketleri aynı kanaldaki diğer cihazlara olduğu gibi iletir.
+İki seçenek var; uygulama adresin şemasına bakıp kendisi seçiyor.
 
-Yerelde:
+### 1. Paylaşımlı hosting (cPanel / PHP) — en kolayı
+
+`server/relay.php` dosyasını FTP ile sitenin herhangi bir klasörüne at.
+Başka hiçbir şey gerekmiyor: Node yok, kurulum yok, sürekli çalışan süreç yok.
+
+Uygulamadaki Relay alanına tam adresini yaz:
+
+```
+https://siteniz.com/telsiz/relay.php
+```
+
+Çalışıp çalışmadığını tarayıcıdan görebilirsin — adresi açınca
+"telsiz-relay (PHP) calisiyor" ve veri klasörünün yazılabilir olup olmadığı
+yazar.
+
+Nasıl çalışıyor: WebSocket olmadığı için ses ~200 ms'lik gruplar halinde POST
+ediliyor, dinleyenler uzun bekleyen bir GET tutuyor (sunucu yeni ses gelene
+kadar cevabı bekletiyor, boşuna sorgu yapılmıyor). Kanal dosyası 1 MB'ı
+geçince sıfırlanıyor; canlı ses için geçmişin anlamı yok.
+
+Ölçülen gecikme: yerel testte ortanca **139 ms**, en yüksek 224 ms. Gerçek
+sunucuda buna gidiş-dönüş süresi ekleniyor, yani pratikte ~200-300 ms.
+
+### 2. Node.js (VPS ya da Node destekleyen hosting)
+
+`server/server.js` — WebSocket rölesi, gecikmesi daha düşük.
 
 ```bash
 cd telsiz/server
 npm install
-npm start          # ws://<bilgisayarın-ip>:8080
+npm start          # ws://<sunucu-ip>:8080
 ```
 
-Ücretsiz barındırma (Render): repoyu bağla, `telsiz/server` klasörünü
-kök olarak seç — `render.yaml` gerisini yapar. Sonra uygulamadaki Relay
-alanına `wss://<uygulama-adın>.onrender.com` yaz.
+Relay alanına `wss://sunucun.com` yaz. `Dockerfile` ve `render.yaml` de var.
 
-`Dockerfile` de var; Fly.io, Railway, kendi VPS'in vb. için kullanılabilir.
+Her iki röle de sesi çözmez, saklamaz: paketleri aynı kanaldaki diğer
+cihazlara olduğu gibi iletir.
 
 ## Teknik
 

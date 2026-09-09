@@ -11,25 +11,25 @@ class RelayTransport(
     channel: Int,
     private val onPacket: (ByteArray, Int) -> Unit,
     private val onState: (String) -> Unit
-) {
+) : RelayLink {
     private val url: String = normalize(rawUrl, channel)
 
     @Volatile private var running = false
     @Volatile private var ws: WebSocketClient? = null
     private var thread: Thread? = null
 
-    @Volatile var connected = false
+    @Volatile override var connected = false
         private set
-    @Volatile var status: String = "kapalı"
+    @Volatile override var status: String = "kapalı"
         private set
 
-    fun start() {
+    override fun start() {
         if (running) return
         running = true
         thread = Thread({ supervise() }, "telsiz-relay").apply { isDaemon = true; start() }
     }
 
-    fun stop() {
+    override fun stop() {
         running = false
         try { ws?.close() } catch (_: Exception) {}
         ws = null
@@ -39,7 +39,7 @@ class RelayTransport(
         setStatus("kapalı")
     }
 
-    fun send(data: ByteArray, len: Int) {
+    override fun send(data: ByteArray, len: Int) {
         if (!connected) return
         try {
             ws?.sendBinary(data, len)
