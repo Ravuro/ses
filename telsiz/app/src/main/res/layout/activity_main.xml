@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:fitsSystemWindows="true"
+    android:background="@color/bg">
+
+    <!-- Başlık -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="TELSİZ"
+            android:textColor="@color/text"
+            android:textSize="22sp"
+            android:letterSpacing="0.15"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/txtNet"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="kapalı"
+            android:textColor="@color/muted"
+            android:textSize="13sp" />
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:clipToPadding="false">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- Ayarlar paneli -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/bg_panel"
+                android:padding="14dp">
+
+                <TextView style="@style/Lbl" android:text="Adın" />
+                <EditText
+                    android:id="@+id/edtNick"
+                    style="@style/Fld"
+                    android:hint="Adın"
+                    android:inputType="textPersonName"
+                    android:maxLength="16" />
+
+                <TextView style="@style/Lbl" android:text="Kanal (1-999)" />
+                <EditText
+                    android:id="@+id/edtChannel"
+                    style="@style/Fld"
+                    android:hint="1"
+                    android:inputType="number"
+                    android:maxLength="3" />
+
+                <TextView style="@style/Lbl" android:text="Relay sunucusu (internet için — boşsa sadece WiFi/hotspot)" />
+                <EditText
+                    android:id="@+id/edtRelay"
+                    style="@style/Fld"
+                    android:hint="wss://sunucun.onrender.com"
+                    android:inputType="textUri" />
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/btnPower"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="14dp"
+                android:background="@drawable/bg_button"
+                android:text="BAŞLAT"
+                android:textColor="@color/text"
+                android:textStyle="bold"
+                android:letterSpacing="0.1"
+                android:stateListAnimator="@null" />
+
+            <!-- Durum -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="14dp"
+                android:background="@drawable/bg_panel"
+                android:padding="14dp">
+
+                <TextView
+                    android:id="@+id/txtStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Kapalı"
+                    android:textColor="@color/muted"
+                    android:textSize="13sp"
+                    android:lineSpacingExtra="4dp"
+                    android:fontFamily="monospace" />
+
+                <TextView
+                    android:id="@+id/txtPeers"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="Kanalda kimse yok"
+                    android:textColor="@color/text"
+                    android:textSize="14sp"
+                    android:lineSpacingExtra="4dp" />
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="16dp" />
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- Konuşan göstergesi -->
+    <TextView
+        android:id="@+id/txtTalking"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:paddingBottom="8dp"
+        android:text=""
+        android:textColor="@color/accent"
+        android:textSize="15sp"
+        android:textStyle="bold" />
+
+    <!-- Bas-Konuş -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingBottom="28dp"
+        android:paddingTop="4dp">
+
+        <Button
+            android:id="@+id/btnPtt"
+            android:layout_width="180dp"
+            android:layout_height="180dp"
+            android:layout_gravity="center_horizontal"
+            android:background="@drawable/bg_ptt"
+            android:text="BAS\nKONUŞ"
+            android:textColor="#FFFFFF"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:stateListAnimator="@null" />
+    </FrameLayout>
+</LinearLayout>

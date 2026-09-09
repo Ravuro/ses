@@ -1,0 +1,10 @@
+<resources>
+    <color name="bg">#0E1116</color>
+    <color name="panel">#171C24</color>
+    <color name="text">#E6EAF0</color>
+    <color name="muted">#8A94A6</color>
+    <color name="accent">#3DDC84</color>
+    <color name="danger">#FF5A5F</color>
+    <color name="ptt">#1F6FEB</color>
+    <color name="ptt_active">#3DDC84</color>
+</resources>

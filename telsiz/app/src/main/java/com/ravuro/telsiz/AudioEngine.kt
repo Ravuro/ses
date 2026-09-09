@@ -1,0 +1,256 @@
+package com.ravuro.telsiz
+
+import android.annotation.SuppressLint
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.AudioTrack
+import android.media.MediaRecorder
+import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.AutomaticGainControl
+import android.media.audiofx.NoiseSuppressor
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
+
+/**
+ * Mikrofon yakalama + gelen seslerin çalınması.
+ *
+ * Çalma tarafı gönderen başına ayrı bir jitter tamponu tutar ve aynı anda
+ * konuşan birden fazla kişiyi toplayarak karıştırır — gerçek bir telsizde
+ * sesler üst üste biner, burada da öyle.
+ */
+class AudioEngine(private val onFrame: (ByteArray, Int) -> Unit) {
+
+    companion object {
+        const val SAMPLE_RATE = 16000
+        const val FRAME_SAMPLES = 640          // 40 ms
+        private const val MAX_QUEUED = 25      // ~1 sn: gecikme sınırı
+        private const val PRIME_FRAMES = 2     // oynatmadan önce biriktirilecek
+    }
+
+    private class SenderQueue {
+        val frames = ConcurrentLinkedQueue<ShortArray>()
+        @Volatile var primed = false
+
+        fun offer(f: ShortArray) {
+            frames.add(f)
+            while (frames.size > MAX_QUEUED) frames.poll()
+            if (frames.size >= PRIME_FRAMES) primed = true
+        }
+
+        fun poll(): ShortArray? {
+            if (!primed) return null
+            val f = frames.poll()
+            if (f == null) primed = false
+            return f
+        }
+    }
+
+    private val queues = ConcurrentHashMap<Long, SenderQueue>()
+
+    private var record: AudioRecord? = null
+    private var track: AudioTrack? = null
+    private var aec: AcousticEchoCanceler? = null
+    private var ns: NoiseSuppressor? = null
+    private var agc: AutomaticGainControl? = null
+
+    private var txThread: Thread? = null
+    private var rxThread: Thread? = null
+
+    @Volatile private var running = false
+    @Volatile var transmitting = false
+        private set
+
+    /** Konuşurken hoparlörü kapat — hoparlör/mikrofon geri beslemesini keser. */
+    @Volatile var halfDuplex = true
+
+    @Volatile var lastError: String? = null
+        private set
+
+    @SuppressLint("MissingPermission")
+    fun start(): Boolean {
+        if (running) return true
+        try {
+            val recMin = AudioRecord.getMinBufferSize(
+                SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
+            )
+            val rec = AudioRecord(
+                MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+                SAMPLE_RATE,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                maxOf(recMin, FRAME_SAMPLES * 2 * 4)
+            )
+            if (rec.state != AudioRecord.STATE_INITIALIZED) {
+                lastError = "mikrofon açılamadı"
+                rec.release()
+                return false
+            }
+            attachEffects(rec.audioSessionId)
+            record = rec
+
+            val playMin = AudioTrack.getMinBufferSize(
+                SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT
+            )
+            val t = AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(SAMPLE_RATE)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build()
+                )
+                .setBufferSizeInBytes(maxOf(playMin, FRAME_SAMPLES * 2 * 4))
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build()
+            t.play()
+            track = t
+        } catch (e: Exception) {
+            lastError = e.message ?: "ses açılamadı"
+            release()
+            return false
+        }
+
+        running = true
+        lastError = null
+        txThread = Thread({ captureLoop() }, "telsiz-tx").apply { isDaemon = true; start() }
+        rxThread = Thread({ playbackLoop() }, "telsiz-rx").apply { isDaemon = true; start() }
+        return true
+    }
+
+    fun stop() {
+        running = false
+        transmitting = false
+        txThread?.interrupt()
+        rxThread?.interrupt()
+        txThread = null
+        rxThread = null
+        try { record?.stop() } catch (_: Exception) {}
+        try { track?.stop() } catch (_: Exception) {}
+        release()
+        queues.clear()
+    }
+
+    fun startTx() {
+        val rec = record ?: return
+        if (transmitting) return
+        try {
+            rec.startRecording()
+            transmitting = true
+        } catch (e: Exception) {
+            lastError = e.message
+        }
+    }
+
+    fun stopTx() {
+        if (!transmitting) return
+        transmitting = false
+        try { record?.stop() } catch (_: Exception) {}
+    }
+
+    /** Ağdan gelen ADPCM parçasını çözüp o gönderenin kuyruğuna koyar. */
+    fun enqueue(senderId: Long, data: ByteArray, off: Int, len: Int) {
+        val pcm = ShortArray(len * 2)
+        val n = Adpcm.decode(data, off, len, pcm)
+        if (n <= 0) return
+        val frame = if (n == pcm.size) pcm else pcm.copyOf(n)
+        queues.getOrPut(senderId) { SenderQueue() }.offer(frame)
+    }
+
+    fun forget(senderId: Long) {
+        queues.remove(senderId)
+    }
+
+    private fun captureLoop() {
+        val pcm = ShortArray(FRAME_SAMPLES)
+        val enc = ByteArray(FRAME_SAMPLES / 2 + 8)
+        while (running) {
+            if (!transmitting) {
+                try { Thread.sleep(20) } catch (_: InterruptedException) { return }
+                continue
+            }
+            val rec = record ?: return
+            val r = try {
+                rec.read(pcm, 0, FRAME_SAMPLES)
+            } catch (_: Exception) {
+                -1
+            }
+            if (r > 0 && transmitting) {
+                val n = Adpcm.encode(pcm, r, enc)
+                onFrame(enc, n)
+            } else if (r <= 0) {
+                try { Thread.sleep(10) } catch (_: InterruptedException) { return }
+            }
+        }
+    }
+
+    private fun playbackLoop() {
+        val mix = IntArray(FRAME_SAMPLES)
+        val out = ShortArray(FRAME_SAMPLES)
+        while (running) {
+            var active = 0
+            java.util.Arrays.fill(mix, 0)
+
+            for (q in queues.values) {
+                val f = q.poll() ?: continue
+                active++
+                val n = minOf(f.size, FRAME_SAMPLES)
+                for (i in 0 until n) mix[i] += f[i].toInt()
+            }
+
+            if (active == 0) {
+                try { Thread.sleep(10) } catch (_: InterruptedException) { return }
+                continue
+            }
+            // Konuşurken gelen sesi çalma: hoparlör mikrofona geri kaçmasın.
+            if (halfDuplex && transmitting) continue
+
+            for (i in 0 until FRAME_SAMPLES) {
+                var v = mix[i]
+                if (v > 32767) v = 32767
+                if (v < -32768) v = -32768
+                out[i] = v.toShort()
+            }
+            try {
+                track?.write(out, 0, FRAME_SAMPLES)
+            } catch (_: Exception) {
+                return
+            }
+        }
+    }
+
+    private fun attachEffects(sessionId: Int) {
+        try {
+            if (AcousticEchoCanceler.isAvailable()) {
+                aec = AcousticEchoCanceler.create(sessionId)?.apply { enabled = true }
+            }
+        } catch (_: Exception) {}
+        try {
+            if (NoiseSuppressor.isAvailable()) {
+                ns = NoiseSuppressor.create(sessionId)?.apply { enabled = true }
+            }
+        } catch (_: Exception) {}
+        try {
+            if (AutomaticGainControl.isAvailable()) {
+                agc = AutomaticGainControl.create(sessionId)?.apply { enabled = true }
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun release() {
+        try { aec?.release() } catch (_: Exception) {}
+        try { ns?.release() } catch (_: Exception) {}
+        try { agc?.release() } catch (_: Exception) {}
+        aec = null; ns = null; agc = null
+        try { record?.release() } catch (_: Exception) {}
+        try { track?.release() } catch (_: Exception) {}
+        record = null
+        track = null
+    }
+}
