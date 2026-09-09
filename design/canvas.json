@@ -1,0 +1,32 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html",        "x": 0,    "y": 0, "w": 390, "h": 844, "title": "Konuşma" },
+    { "file": "Kurulum.dc.html",     "x": 490,  "y": 0, "w": 390, "h": 844, "title": "Kurulum" },
+    { "file": "TelsizAgi.dc.html",   "x": 980,  "y": 0, "w": 390, "h": 844, "title": "Telsiz ağı" },
+    { "file": "AlternatifB.dc.html", "x": 1620, "y": 0, "w": 390, "h": 844, "title": "Alternatif B" }
+  ],
+  "annotations": [
+    {
+      "id": "yon",
+      "x": 0,
+      "y": -190,
+      "w": 880,
+      "text": "YÖN — Saha cihazı\n\nTelsiz dışarıda, elde, çoğu zaman ekrana bakmadan kullanılıyor. Yumuşak/oyuncu bir dil yerine ölçüm aleti dili: koyu zemin, tek sinyal rengi, telemetri için monospace, büyük ve dokunulası bir bas-konuş.\n\nSpace Grotesk + JetBrains Mono. Yeşil = sen konuşuyorsun, camgöbeği = karşı taraf konuşuyor, kehribar = uyarı."
+    },
+    {
+      "id": "durum-tweak",
+      "x": 0,
+      "y": 900,
+      "w": 390,
+      "text": "Bu artboard'un üstündeki \"durum\" düğmesiyle bas-konuşun üç halini görebilirsin: bekliyor / gönderiyor / alıyor."
+    },
+    {
+      "id": "alternatif",
+      "x": 1620,
+      "y": -190,
+      "w": 390,
+      "text": "ALTERNATİF B — Tek hareket\n\nBilgi yoğunluğu yerine tek dev hedef: ekranın alt yarısı düğme, geri kalanı tek satır.\n\nArtısı: eldivenle, koşarken, bakmadan çalışır.\nEksisi: ağ durumu ve kanaldakiler görünmüyor — sorun çıktığında nereye bakacağın belli değil."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: #3EE08A; } a:hover { color: #7CEFB4; }
+  </style>
+</helmet>
+
+<div style="width: 390px; height: 844px; background: #0A0D12; color: #E9EDF3; font-family: 'Space Grotesk', system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden;">
+
+  <div style="padding: 22px 22px 18px; display: flex; align-items: center; gap: 10px;">
+    <div style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; letter-spacing: 0.22em; color: #79838F;">TELSİZ</div>
+    <div style="flex-grow: 1;"></div>
+    <div style="display: flex; align-items: center; gap: 7px; padding: 5px 11px 5px 9px; border: 1px solid #232B36; border-radius: 999px;">
+      <div style="width: 6px; height: 6px; border-radius: 50%; background: #4C5764;"></div>
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: #79838F;">KAPALI</div>
+    </div>
+  </div>
+
+  <!-- Kanal: ekranın en belirgin öğesi, çünkü buluşma noktası bu -->
+  <div style="margin: 0 22px; background: #12161D; border: 1px solid #1D242E; border-radius: 18px; padding: 18px 20px 20px;">
+    <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.18em; color: #79838F;">KANAL</div>
+    <div style="display: flex; align-items: center; gap: 18px; margin-top: 10px;">
+      <div style="width: 42px; height: 42px; border-radius: 12px; border: 1px solid #2A3542; background: #171E27; display: flex; align-items: center; justify-content: center;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#B9C2CC" stroke-width="2" stroke-linecap="round">
+          <path d="M5 12h14"></path>
+        </svg>
+      </div>
+      <div style="flex-grow: 1; text-align: center; font-size: 46px; font-weight: 700; line-height: 1; letter-spacing: -0.03em;">07</div>
+      <div style="width: 42px; height: 42px; border-radius: 12px; border: 1px solid #2A3542; background: #171E27; display: flex; align-items: center; justify-content: center;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#B9C2CC" stroke-width="2" stroke-linecap="round">
+          <path d="M12 5v14M5 12h14"></path>
+        </svg>
+      </div>
+    </div>
+    <div style="margin-top: 14px; font-size: 13px; line-height: 1.5; color: #5A6674;">Aynı kanaldaki herkes birbirini duyar.</div>
+  </div>
+
+  <!-- Ad -->
+  <div style="margin: 12px 22px 0;">
+    <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.18em; color: #79838F; margin-bottom: 8px;">ADIN</div>
+    <div style="background: #0E1219; border: 1px solid #232B36; border-radius: 14px; padding: 15px 16px; font-size: 16px; color: #E9EDF3;">Kadir</div>
+  </div>
+
+  <!-- Relay -->
+  <div style="margin: 14px 22px 0;">
+    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.18em; color: #79838F;">RÖLE SUNUCUSU</div>
+      <div style="flex-grow: 1;"></div>
+      <div style="display: flex; align-items: center; gap: 5px;">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3EE08A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 6L9 17l-5-5"></path>
+        </svg>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; color: #3EE08A;">122 ms</div>
+      </div>
+    </div>
+    <div style="background: #0E1219; border: 1px solid #232B36; border-radius: 14px; padding: 15px 16px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #B9C2CC; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">alkayazilim.com/relay.php</div>
+    <div style="margin-top: 8px; font-size: 12px; line-height: 1.5; color: #5A6674;">Boş bırakırsan yalnızca yerel ağda konuşulur.</div>
+  </div>
+
+  <!-- Ses tuşu -->
+  <div style="margin: 16px 22px 0; background: #12161D; border: 1px solid #1D242E; border-radius: 16px; padding: 15px 16px; display: flex; align-items: center; gap: 14px;">
+    <div style="flex-grow: 1;">
+      <div style="font-size: 15px; font-weight: 500;">Ses tuşuyla konuş</div>
+      <div style="font-size: 12px; line-height: 1.45; color: #5A6674; margin-top: 3px;">Ses yükseltme tuşunu basılı tut</div>
+    </div>
+    <div style="width: 50px; height: 30px; border-radius: 999px; background: #1B7F4E; border: 1px solid #2C9E67; display: flex; align-items: center; justify-content: flex-end; padding: 0 3px;">
+      <div style="width: 24px; height: 24px; border-radius: 50%; background: #3EE08A;"></div>
+    </div>
+  </div>
+
+  <div style="flex-grow: 1;"></div>
+
+  <div style="padding: 0 22px 12px;">
+    <div style="background: #3EE08A; border-radius: 16px; padding: 19px; text-align: center; font-size: 15px; font-weight: 700; letter-spacing: 0.14em; color: #06170E; font-family: 'JetBrains Mono', monospace;">BAŞLAT</div>
+  </div>
+
+  <div style="text-align: center; padding: 0 40px 26px; font-size: 12px; line-height: 1.5; color: #4C5764;">
+    Başlatınca mikrofon izni istenir
+  </div>
+
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview": {"width": 390, "height": 844}}'>
+class Component extends DCLogic {}
+</script>
+</body>
+</html>

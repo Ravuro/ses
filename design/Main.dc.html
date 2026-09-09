@@ -1,0 +1,184 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: #3EE08A; } a:hover { color: #7CEFB4; }
+  </style>
+</helmet>
+
+<div style="width: 390px; height: 844px; background: #0A0D12; color: #E9EDF3; font-family: 'Space Grotesk', system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden;">
+
+  <!-- Üst: kimlik ve kanal -->
+  <div style="padding: 22px 22px 16px; display: flex; flex-direction: column; gap: 14px;">
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; letter-spacing: 0.22em; color: #79838F;">TELSİZ</div>
+      <div style="flex-grow: 1;"></div>
+      <div style="display: flex; align-items: center; gap: 7px; padding: 5px 11px 5px 9px; border: 1px solid #232B36; border-radius: 999px;">
+        <div style="width: 6px; height: 6px; border-radius: 50%; background: #3EE08A; box-shadow: 0 0 8px #3EE08A;"></div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: #B9C2CC;">YAYINDA</div>
+      </div>
+    </div>
+
+    <div style="display: flex; align-items: flex-end; gap: 12px;">
+      <div style="font-size: 52px; font-weight: 700; line-height: 0.86; letter-spacing: -0.03em; color: #E9EDF3;">07</div>
+      <div style="padding-bottom: 6px;">
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.2em; color: #79838F;">KANAL</div>
+        <div style="font-size: 14px; color: #B9C2CC; margin-top: 2px;">Kadir olarak bağlısın</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bağlantı telemetrisi -->
+  <div style="padding: 0 22px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;">
+
+    <div style="background: #12161D; border: 1px solid #1D242E; border-radius: 14px; padding: 12px 11px;">
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <div style="width: 5px; height: 5px; border-radius: 50%; background: #3EE08A;"></div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 700; letter-spacing: 0.12em; color: #79838F;">YEREL</div>
+      </div>
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500; color: #E9EDF3; margin-top: 8px;">192.168<span style="color: #4C5764;">.</span>49<span style="color: #4C5764;">.</span>1</div>
+    </div>
+
+    <div style="background: #12161D; border: 1px solid #1D242E; border-radius: 14px; padding: 12px 11px;">
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <div style="width: 5px; height: 5px; border-radius: 50%; background: #3EE08A;"></div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 700; letter-spacing: 0.12em; color: #79838F;">İNTERNET</div>
+      </div>
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500; color: #E9EDF3; margin-top: 8px;">122<span style="color: #4C5764;"> ms</span></div>
+    </div>
+
+    <div style="background: #12161D; border: 1px solid #1D242E; border-radius: 14px; padding: 12px 11px;">
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <div style="width: 5px; height: 5px; border-radius: 50%; background: #22D3EE;"></div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 700; letter-spacing: 0.12em; color: #79838F;">KÖPRÜ</div>
+      </div>
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500; color: #E9EDF3; margin-top: 8px;">açık</div>
+    </div>
+  </div>
+
+  <!-- Kanaldakiler -->
+  <div style="margin: 14px 22px 0; background: #12161D; border: 1px solid #1D242E; border-radius: 16px; padding: 15px 16px 6px;">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.16em; color: #79838F;">KANALDA</div>
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; color: #3EE08A;">3</div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 2px; margin-top: 10px;">
+
+      <div style="display: flex; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid #171E27;">
+        <div style="width: 32px; height: 32px; border-radius: 10px; background: #1D2530; border: 1px solid #2A3542; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; color: #B9C2CC;">MA</div>
+        <div style="flex-grow: 1; font-size: 15px; font-weight: 500;">Mert</div>
+        <div style="display: flex; align-items: center; gap: 7px;">
+          <div style="display: flex; align-items: flex-end; gap: 2px; height: 13px;">
+            <div style="width: 3px; height: 5px; border-radius: 2px; background: #22D3EE;"></div>
+            <div style="width: 3px; height: 11px; border-radius: 2px; background: #22D3EE;"></div>
+            <div style="width: 3px; height: 8px; border-radius: 2px; background: #22D3EE;"></div>
+            <div style="width: 3px; height: 13px; border-radius: 2px; background: #22D3EE;"></div>
+          </div>
+          <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: #22D3EE;">KONUŞUYOR</div>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid #171E27;">
+        <div style="width: 32px; height: 32px; border-radius: 10px; background: #1D2530; border: 1px solid #2A3542; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; color: #B9C2CC;">SE</div>
+        <div style="flex-grow: 1; font-size: 15px; font-weight: 500;">Selin</div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #5A6674;">dinliyor</div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 12px; padding: 9px 0;">
+        <div style="width: 32px; height: 32px; border-radius: 10px; background: #1D2530; border: 1px solid #2A3542; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; color: #B9C2CC;">EM</div>
+        <div style="flex-grow: 1; font-size: 15px; font-weight: 500;">Emre</div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.08em; color: #5A6674;">dinliyor</div>
+      </div>
+
+    </div>
+  </div>
+
+  <div style="flex-grow: 1;"></div>
+
+  <!-- Durum satırı -->
+  <div style="height: 22px; display: flex; align-items: center; justify-content: center;">
+    <div style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; letter-spacing: 0.16em; color: {{ui.bannerColor}};">{{ui.bannerText}}</div>
+  </div>
+
+  <!-- Bas-konuş -->
+  <div style="display: flex; align-items: center; justify-content: center; padding: 10px 0 0;">
+    <div style="position: relative; width: 212px; height: 212px; display: flex; align-items: center; justify-content: center;">
+      <div style="position: absolute; left: -16px; top: -16px; right: -16px; bottom: -16px; border-radius: 50%; border: 1px solid {{ui.ringOuter}};"></div>
+      <div style="position: absolute; left: -6px; top: -6px; right: -6px; bottom: -6px; border-radius: 50%; border: 1px solid {{ui.ringInner}};"></div>
+      <div style="position: absolute; left: 0; top: 0; right: 0; bottom: 0; border-radius: 50%; background: {{ui.face}}; box-shadow: {{ui.glow}};"></div>
+      <div style="position: relative; display: flex; flex-direction: column; align-items: center; gap: 12px;">
+        <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="{{ui.glyph}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="2" width="6" height="11" rx="3" fill="{{ui.glyph}}" stroke="none"></rect>
+          <path d="M5 11a7 7 0 0 0 14 0"></path>
+          <path d="M12 18v3.5"></path>
+        </svg>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; letter-spacing: 0.16em; color: {{ui.glyph}};">{{ui.pttText}}</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="text-align: center; padding: 18px 40px 26px; font-size: 12px; line-height: 1.5; color: #5A6674;">
+    Düğmeyi ya da ses yükseltme tuşunu basılı tut
+  </div>
+
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{
+  "durum": {"editor": "enum", "options": ["bekliyor", "gonderiyor", "aliyor"], "default": "aliyor", "section": "Durum"},
+  "$preview": {"width": 390, "height": 844}
+}'>
+class Component extends DCLogic {
+  renderVals() {
+    const durum = this.props.durum ?? 'aliyor';
+
+    // Bas-konus dugmesinin uc hali. Yesil = sen konusuyorsun,
+    // camgobegi = karsi taraf konusuyor, notr = sira sende degil.
+    const haller = {
+      bekliyor: {
+        face: 'radial-gradient(120% 120% at 50% 18%, #1E2733 0%, #141A23 100%)',
+        glow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+        glyph: '#8C97A4',
+        pttText: 'BAS KONUŞ',
+        ringOuter: '#1B222C',
+        ringInner: '#232C38',
+        bannerText: '',
+        bannerColor: '#5A6674'
+      },
+      gonderiyor: {
+        face: 'radial-gradient(120% 120% at 50% 18%, #55EC9C 0%, #12A664 100%)',
+        glow: '0 0 0 1px rgba(62,224,138,0.35), 0 0 48px rgba(62,224,138,0.32)',
+        glyph: '#06170E',
+        pttText: 'GÖNDERİYOR',
+        ringOuter: '#1E4633',
+        ringInner: '#2C6B4B',
+        bannerText: 'MİKROFON AÇIK',
+        bannerColor: '#3EE08A'
+      },
+      aliyor: {
+        face: 'radial-gradient(120% 120% at 50% 18%, #22303D 0%, #141A23 100%)',
+        glow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+        glyph: '#9AA5B2',
+        pttText: 'BAS KONUŞ',
+        ringOuter: '#1B3A44',
+        ringInner: '#22D3EE',
+        bannerText: 'MERT KONUŞUYOR',
+        bannerColor: '#22D3EE'
+      }
+    };
+
+    return { ui: haller[durum] ?? haller.bekliyor };
+  }
+}
+</script>
+</body>
+</html>
