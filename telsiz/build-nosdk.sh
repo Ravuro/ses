@@ -101,7 +101,13 @@ rm -f stage/manifest-src.xml
 
 echo "[6/7] Paketleniyor"
 rm -f unsigned.apk telsiz.apk
-(cd stage && zip -q -X -r ../unsigned.apk AndroidManifest.xml resources.arsc classes.dex res)
+# assets/ derlenmez, oldugu gibi paketlenir: AssetManager APK icindeki
+# assets/ dizinini dogrudan okuyor, aapt2 gerekmiyor.
+if [ -d "$ROOT/app/src/main/assets" ]; then
+    rm -rf stage/assets
+    cp -r "$ROOT/app/src/main/assets" stage/assets
+fi
+(cd stage && zip -q -X -r ../unsigned.apk AndroidManifest.xml resources.arsc classes.dex res assets)
 
 echo "[7/7] Imzalaniyor"
 # Anahtar depoya girmiyor. Yeniden uretilirse imza degisir; o durumda

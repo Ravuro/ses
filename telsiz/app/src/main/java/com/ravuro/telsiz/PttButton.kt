@@ -20,13 +20,30 @@ import android.view.View
 class PttButton(ctx: Context) : View(ctx) {
 
     private companion object {
-        val IDLE_A = 0xFF2C6BE8.toInt()
-        val IDLE_B = 0xFF1B3F91.toInt()
-        val TX_A = 0xFF3DDC84.toInt()
-        val TX_B = 0xFF128A4E.toInt()
-        val RX_A = 0xFF2AA9D6.toInt()
-        val RX_B = 0xFF14566E.toInt()
-        val RING = 0xFF232B39.toInt()
+        // Boşta çelik, sen konuşurken yeşil, karşı taraf konuşurken camgöbeği.
+        // Renk kodu uygulamanın her yerinde aynı: yeşil = giden, camgöbeği = gelen.
+        val IDLE_A = 0xFF1E2733.toInt()
+        val IDLE_B = 0xFF141A23.toInt()
+        val TX_A = 0xFF55EC9C.toInt()
+        val TX_B = 0xFF12A664.toInt()
+        val RX_A = 0xFF22303D.toInt()
+        val RX_B = 0xFF141A23.toInt()
+        val OFF_A = 0xFF171E27.toInt()
+        val OFF_B = 0xFF101419.toInt()
+
+        val GLYPH_IDLE = 0xFF8C97A4.toInt()
+        val GLYPH_TX = 0xFF06170E.toInt()
+        val GLYPH_RX = 0xFF9AA5B2.toInt()
+        val GLYPH_OFF = 0xFF4C5764.toInt()
+
+        val RING_IDLE = 0xFF1B222C.toInt()
+        val RING_IDLE_IN = 0xFF232C38.toInt()
+        val RING_TX = 0xFF1E4633.toInt()
+        val RING_TX_IN = 0xFF2C6B4B.toInt()
+        val RING_RX_IN = 0xFF22D3EE.toInt()
+
+        val PULSE_TX = 0xFF3EE08A.toInt()
+        val PULSE_RX = 0xFF22D3EE.toInt()
     }
 
     var transmitting = false
@@ -69,7 +86,7 @@ class PttButton(ctx: Context) : View(ctx) {
         if (animating) {
             paint.style = Paint.Style.STROKE
             paint.shader = null
-            val base = if (transmitting) TX_A else RX_A
+            val base = if (transmitting) PULSE_TX else PULSE_RX
             for (i in 0 until 3) {
                 val p = (phase + i / 3f) % 1f
                 val rr = r * (1f + p * 0.42f)
@@ -79,16 +96,26 @@ class PttButton(ctx: Context) : View(ctx) {
             }
         }
 
-        // Dış çerçeve
+        // İki hâlkalı çerçeve: dıştaki nötr, içteki duruma göre renkleniyor —
+        // gelen ses camgöbeği bir çizgiyle belli oluyor.
+        val ringOut = if (transmitting) RING_TX else RING_IDLE
+        val ringIn = when {
+            !live -> RING_IDLE
+            transmitting -> RING_TX_IN
+            receiving -> RING_RX_IN
+            else -> RING_IDLE_IN
+        }
         paint.style = Paint.Style.STROKE
         paint.shader = null
-        paint.strokeWidth = dp(1.5f)
-        paint.color = RING
-        canvas.drawCircle(cx, cy, r + dp(6), paint)
+        paint.strokeWidth = dp(1f)
+        paint.color = ringOut
+        canvas.drawCircle(cx, cy, r + dp(13), paint)
+        paint.color = ringIn
+        canvas.drawCircle(cx, cy, r + dp(5), paint)
 
         // Gövde
         val (a, b) = when {
-            !live -> 0xFF20262F.toInt() to 0xFF161B23.toInt()
+            !live -> OFF_A to OFF_B
             transmitting -> TX_A to TX_B
             receiving -> RX_A to RX_B
             else -> IDLE_A to IDLE_B
@@ -104,19 +131,25 @@ class PttButton(ctx: Context) : View(ctx) {
         // İç parlama halkası
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = dp(1.2f)
-        paint.color = withAlpha(Color.WHITE, if (live) 46 else 16)
+        paint.color = withAlpha(Color.WHITE, if (live) 40 else 14)
         canvas.drawCircle(cx, cy, r - dp(3), paint)
 
-        drawMic(canvas, cx, cy - r * 0.16f, r * 0.40f)
+        val glyphColor = when {
+            !live -> GLYPH_OFF
+            transmitting -> GLYPH_TX
+            receiving -> GLYPH_RX
+            else -> GLYPH_IDLE
+        }
+        drawMic(canvas, cx, cy - r * 0.16f, r * 0.40f, glyphColor)
 
         // Etiket
         paint.style = Paint.Style.FILL
         paint.shader = null
-        paint.color = withAlpha(Color.WHITE, if (live) 235 else 90)
+        paint.color = glyphColor
         paint.textAlign = Paint.Align.CENTER
-        paint.textSize = dp(14f)
-        paint.isFakeBoldText = true
-        paint.letterSpacing = 0.12f
+        paint.typeface = Fonts.mono(context, bold = true)
+        paint.textSize = dp(12f)
+        paint.letterSpacing = 0.16f
         val label = when {
             !live -> "KAPALI"
             transmitting -> "GÖNDERİYOR"
@@ -124,15 +157,13 @@ class PttButton(ctx: Context) : View(ctx) {
         }
         canvas.drawText(label, cx, cy + r * 0.62f, paint)
         paint.letterSpacing = 0f
-        paint.isFakeBoldText = false
 
         if (animating) postInvalidateOnAnimation()
     }
 
     /** Mikrofon simgesi: kapsül + alt yay + sap. */
-    private fun drawMic(canvas: Canvas, cx: Float, cy: Float, s: Float) {
-        val alpha = if (live) 255 else 110
-        paint.color = withAlpha(Color.WHITE, alpha)
+    private fun drawMic(canvas: Canvas, cx: Float, cy: Float, s: Float, color: Int) {
+        paint.color = color
 
         paint.style = Paint.Style.FILL
         val w = s * 0.46f

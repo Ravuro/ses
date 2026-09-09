@@ -46,6 +46,10 @@ class HttpRelayTransport(
     @Volatile override var status = "kapalı"
         private set
 
+    /** Son POST'un gidiş-dönüş süresi. Uydurma değil: arayüzde bunu gösteriyoruz. */
+    @Volatile var lastRttMs: Int = -1
+        private set
+
     override fun start() {
         if (running) return
         running = true
@@ -84,7 +88,9 @@ class HttpRelayTransport(
 
             val body = drain() ?: continue
             try {
+                val t0 = System.currentTimeMillis()
                 post(body)
+                lastRttMs = (System.currentTimeMillis() - t0).toInt()
             } catch (e: Exception) {
                 connected = false
                 setStatus(shortError(e))

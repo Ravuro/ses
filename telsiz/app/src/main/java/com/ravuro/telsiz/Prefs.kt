@@ -24,9 +24,12 @@ class Prefs(ctx: Context) {
         get() = sp.getInt("channel", 1)
         set(v) = sp.edit().putInt("channel", v).apply()
 
-    var relayUrl: String
-        get() = sp.getString("relay", DEFAULT_RELAY) ?: DEFAULT_RELAY
-        set(v) = sp.edit().putString("relay", v).apply()
+    /**
+     * Röle adresi uygulamaya gömülü: arayüzde ne görünüyor ne de
+     * değiştirilebiliyor. İnternet üzerinden konuşma, kullanıcı hiçbir şey
+     * yapmadan çalışan bir özellik olmalı.
+     */
+    val relayUrl: String get() = DEFAULT_RELAY
 
     /** Ses tuşuyla bas-konuş (uygulama ekrandayken). */
     var volumePtt: Boolean

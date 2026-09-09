@@ -44,9 +44,7 @@ Android 8.0 ve üstü gerekir.
 ## Kullanım
 
 1. **Adın** ve **Kanal** (1-999) gir. Aynı kanaldakiler birbirini duyar.
-2. İnternet üzerinden de konuşacaksan **Relay** adresini gir (aşağıya bak).
-   Boş bırakırsan sadece WiFi/hotspot üzerinden çalışır.
-3. **BAŞLAT**'a bas, mikrofon iznini ver.
+2. **BAŞLAT**'a bas, mikrofon iznini ver.
 4. Büyük düğmeyi **basılı tutarak** konuş, bırakınca dinle. Uygulama
    ekrandayken **ses yükseltme tuşunu** basılı tutmak da aynı işi yapar —
    ekrana bakmadan konuşabilmek için. Ses kısma tuşu ses ayarı olarak kalır.
@@ -102,10 +100,12 @@ donanımdır — telefon o işi yapamaz.
 
 İki seçenek var; uygulama adresin şemasına bakıp kendisi seçiyor.
 
-Uygulamada hazır bir röle gömülü geliyor
-(`https://alkayazilim.com/relay.php`), yani hiçbir şey kurmadan internet
-üzerinden de konuşulabilir. Kendi röleni kurmak istersen aşağıdaki iki
-yoldan biriyle, adresini Relay alanına yaz.
+Röle adresi uygulamaya gömülü (`https://alkayazilim.com/relay.php`) ve
+arayüzde görünmüyor: internet üzerinden konuşma, kullanıcı hiçbir şey
+yapmadan çalışan bir özellik. Değiştirmek için `Prefs.DEFAULT_RELAY`
+sabitini düzenleyip yeniden derlemek gerekiyor.
+
+Kendi röleni kurmak istersen aşağıdaki iki yoldan biriyle.
 
 ### 1. Paylaşımlı hosting (cPanel / PHP) — en kolayı
 
@@ -148,7 +148,8 @@ npm install
 npm start          # ws://<sunucu-ip>:8080
 ```
 
-Relay alanına `wss://sunucun.com` yaz. `Dockerfile` ve `render.yaml` de var.
+`Dockerfile` ve `render.yaml` de var. Adresi `Prefs.DEFAULT_RELAY`'e yaz;
+`ws://`/`wss://` verilirse WebSocket, `http(s)://` verilirse PHP yolu kullanılır.
 
 Her iki röle de sesi çözmez, saklamaz: paketleri aynı kanaldaki diğer
 cihazlara olduğu gibi iletir.
@@ -168,6 +169,10 @@ cihazlara olduğu gibi iletir.
 - Ağ arayüzleri 2.5 sn'de bir taranır; değişince UDP soketi yeniden kurulup
   multicast üyelikleri tazelenir.
 - Android 8.0 (API 26) ve üstü.
+- Yazı tipleri APK'nın `assets/` klasöründen yükleniyor (res/ yok):
+  Space Grotesk arayüz, JetBrains Mono ölçüm değerleri için. İkisi de
+  SIL OFL; Latin+Türkçe karakterlere indirgenmiş hâlleri paketleniyor
+  (dördü toplam 160 KB).
 
 ## Derleme
 

@@ -97,6 +97,8 @@ class TelsizService : Service() {
     }
     val relayEnabled: Boolean get() = relay != null
     val relayConnected: Boolean get() = relay?.connected == true
+    /** Röleye gidiş-dönüş süresi; ölçüm yoksa -1. */
+    val relayRttMs: Int get() = (relay as? HttpRelayTransport)?.lastRttMs ?: -1
     val transmitting: Boolean get() = engine?.transmitting == true
 
     private val txBuf = ByteArray(Packet.MAX)
