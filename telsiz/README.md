@@ -6,12 +6,31 @@ Ses aynı anda **iki yoldan** gider ve iki yoldan da dinlenir:
 
 | Yol | Ne zaman çalışır | Sunucu gerekir mi |
 |-----|------------------|-------------------|
-| **LAN** (UDP) | Aynı WiFi ağında ya da birinin hotspot'una bağlıyken | Hayır |
+| **LAN** (UDP) | Aynı yerel ağda: router, hotspot ya da Wi-Fi Direct | Hayır |
 | **Relay** (WebSocket) | İnternet varken, uzaktaki kişilerle | Evet (`server/`) |
 
-Kullanıcının bir şey seçmesi gerekmez. Şebeke yoksa LAN yolu tek başına
-çalışmaya devam eder; internet varken ikisi birden açıktır. Aynı paket her iki
-yoldan da gelirse sıra numarasıyla elenir, ses iki kez duyulmaz.
+Kullanıcının bir şey seçmesi gerekmez. İnternet yoksa LAN yolu tek başına
+çalışmaya devam eder. Aynı paket her iki yoldan da gelirse sıra numarasıyla
+elenir, ses iki kez duyulmaz.
+
+## Hiç ağ yokken — ne WiFi ne şebeke
+
+Uygulamadaki **TELSİZ AĞI KUR** düğmesi bir Wi-Fi Direct grubu açar: telefon
+kendi kablosuz ağını yayınlar. Router, SIM kart, internet — hiçbiri gerekmez,
+sadece WiFi'nin açık olması yeter (bir ağa bağlı olması gerekmiyor).
+
+Diğerleri bu ağa WiFi ayarlarından bağlanır:
+
+```
+Ağ adı : DIRECT-Telsiz
+Parola : telsiz1234
+```
+
+Ad ve parola sabit; kuran kişinin kimseye bir şey söylemesine gerek yok.
+(Android 9 ve altında sistem rastgele üretir, uygulama ekranda gösterir.)
+
+Grup kurulunca sistem yeni bir ağ arayüzü açar ve ses taşıyıcısı onu kendi
+bulur — ayrıca bir şey yapman gerekmiyor.
 
 ## Kurulum
 
@@ -33,10 +52,11 @@ Android 8.0 ve üstü gerekir.
 Uygulama arka plandayken ve ekran kapalıyken de dinlemeye devam eder
 (bildirimden kapatabilirsin).
 
-### Şebeke yokken
+### Ağ kopunca
 
-Birisi telefonundan hotspot açar, diğerleri ona bağlanır. Hiçbir ayar
-değişmeden telsiz çalışır — internet gerekmez.
+Uygulama ağ arayüzlerini sürekli izler. WiFi kopup geri gelse, hotspot açılsa
+ya da Wi-Fi Direct grubu kurulsa, soketi kendiliğinden yeniden kurar ve ses
+akmaya devam eder.
 
 ## Relay sunucusu (internet için)
 
@@ -69,6 +89,9 @@ alanına `wss://<uygulama-adın>.onrender.com` yaz.
 - LAN tarafında hem multicast (`239.255.42.99:47771`) hem subnet broadcast
   kullanılır — router'ların ve hotspot'ların hangisini geçirdiği değişiyor.
 - Konuşurken hoparlör kapanır (yarı çift yönlü), böylece geri besleme olmaz.
+- Ağ arayüzleri 2.5 sn'de bir taranır; değişince UDP soketi yeniden kurulup
+  multicast üyelikleri tazelenir.
+- Android 8.0 (API 26) ve üstü.
 
 ## Derleme
 

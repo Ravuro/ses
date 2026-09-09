@@ -114,6 +114,12 @@ public final class AxmlEncoder {
             a.dataType = TYPE_REFERENCE;
             a.data = id;
             a.raw = null;
+        } else if (v.startsWith("@0x")) {
+            // Kendi paketimizin kaynagina ham referans: res/ klasoru ve aapt2
+            // olmadigi icin "@drawable/..." adiyla cozecek bir tablo yok.
+            a.dataType = TYPE_REFERENCE;
+            a.data = (int) Long.parseLong(v.substring(3), 16);
+            a.raw = null;
         } else if (v.equals("true") || v.equals("false")) {
             a.dataType = TYPE_INT_BOOLEAN;
             a.data = v.equals("true") ? 0xFFFFFFFF : 0;

@@ -14,6 +14,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.provider.Settings
 import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
@@ -37,6 +38,7 @@ class MainActivity : Activity() {
 
     private companion object {
         const val REQ_MIC = 1
+        const val REQ_LOCATION = 2
 
         const val BG = 0xFF0E1116.toInt()
         const val PANEL = 0xFF171C24.toInt()
@@ -59,6 +61,9 @@ class MainActivity : Activity() {
     private lateinit var txtStatus: TextView
     private lateinit var txtPeers: TextView
     private lateinit var txtTalking: TextView
+    private lateinit var txtDirect: TextView
+    private lateinit var btnDirect: Button
+    private lateinit var btnWifiSettings: Button
 
     private var service: TelsizService? = null
     private var bindRequested = false
@@ -145,6 +150,17 @@ class MainActivity : Activity() {
         if (maxLen > 0) filters = arrayOf(android.text.InputFilter.LengthFilter(maxLen))
     }
 
+    private fun smallButton(text: String, onClick: () -> Unit) = Button(this).apply {
+        this.text = text
+        setTextColor(TEXT)
+        textSize = 13f
+        setTypeface(typeface, android.graphics.Typeface.BOLD)
+        background = rounded(0xFF252C38.toInt(), 10)
+        stateListAnimator = null
+        setPadding(dp(12), 0, dp(12), 0)
+        setOnClickListener { onClick() }
+    }
+
     private fun panel() = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         background = rounded(PANEL, 14)
@@ -215,6 +231,44 @@ class MainActivity : Activity() {
         }
         content.addView(btnPower, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, dp(52)
+        ).apply { topMargin = dp(14) })
+
+        // Ağ paneli: internet yokken ne yapılacağı buradan yönetiliyor.
+        val netPanel = panel().apply { setPadding(dp(14), dp(14), dp(14), dp(14)) }
+        netPanel.addView(TextView(this).apply {
+            text = "AĞ"
+            setTextColor(MUTED)
+            textSize = 11f
+            letterSpacing = 0.15f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        })
+        txtDirect = TextView(this).apply {
+            text = "-"
+            setTextColor(TEXT)
+            textSize = 13f
+            setPadding(0, dp(8), 0, dp(10))
+            setLineSpacing(dp(4).toFloat(), 1f)
+        }
+        netPanel.addView(txtDirect)
+
+        btnDirect = smallButton("TELSİZ AĞI KUR") { toggleDirect() }
+        netPanel.addView(btnDirect, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(44)
+        ))
+
+        btnWifiSettings = smallButton("WiFi AYARLARINI AÇ") {
+            try {
+                startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))
+            } catch (_: Exception) {
+                toast("Ayarlar açılamadı")
+            }
+        }
+        netPanel.addView(btnWifiSettings, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(44)
+        ).apply { topMargin = dp(8) })
+
+        content.addView(netPanel, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = dp(14) })
 
         val statusPanel = panel().apply { setPadding(dp(14), dp(14), dp(14), dp(14)) }
@@ -327,12 +381,44 @@ class MainActivity : Activity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode != REQ_MIC) return
-        if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            startSession()
-        } else {
-            Toast.makeText(this, "Mikrofon izni olmadan telsiz çalışmaz", Toast.LENGTH_LONG).show()
+        val granted = grantResults.isNotEmpty() &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED
+        when (requestCode) {
+            REQ_MIC -> if (granted) startSession()
+            else Toast.makeText(this, "Mikrofon izni olmadan telsiz çalışmaz", Toast.LENGTH_LONG).show()
+
+            REQ_LOCATION -> if (granted) service?.createDirectGroup()
+            else Toast.makeText(
+                this,
+                "Android, Wi-Fi Direct için konum izni istiyor. İzin vermezsen telsiz ağı kurulamaz.",
+                Toast.LENGTH_LONG
+            ).show()
         }
+    }
+
+    private fun toggleDirect() {
+        val svc = service
+        if (svc == null) {
+            toast("Önce BAŞLAT'a bas")
+            return
+        }
+        if (svc.directActive) {
+            svc.removeDirectGroup()
+            return
+        }
+        if (!svc.directSupported()) {
+            toast("Bu cihaz Wi-Fi Direct desteklemiyor — biri hotspot açsın")
+            return
+        }
+        // Android 10+ Wi-Fi Direct'i konum iznine bağlamış durumda.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q &&
+            checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), REQ_LOCATION)
+            return
+        }
+        svc.createDirectGroup()
     }
 
     private fun startSession() {
@@ -371,6 +457,45 @@ class MainActivity : Activity() {
 
     // ---- durum tazeleme ----
 
+    /**
+     * Ağ paneli. Kullanıcının asıl sorusu "internet yokken ne olacak" —
+     * cevabı burada, duruma göre tek bir sonraki adım olarak veriyoruz.
+     */
+    private fun refreshNetworkPanel(svc: TelsizService) {
+        btnDirect.alpha = 1f
+        val ssid = svc.directSsid
+
+        if (ssid != null) {
+            btnDirect.text = "AĞI KAPAT"
+            txtDirect.text = buildString {
+                append("Telsiz ağı yayında — internet gerekmiyor.\n\n")
+                append("Ağ adı : ").append(ssid).append('\n')
+                append("Parola : ").append(svc.directPassphrase ?: "-").append('\n')
+                append("Bağlı  : ").append(svc.directClients).append(" cihaz\n\n")
+                append("Diğerleri WiFi ayarlarından bu ağa bağlansın.")
+            }
+            return
+        }
+
+        btnDirect.text = "TELSİZ AĞI KUR"
+        val lanOk = svc.lanError == null && svc.lanIp != "-"
+        txtDirect.text = when {
+            lanOk -> "Yerel ağdasın (" + svc.lanIp + ").\n" +
+                "Aynı ağdakilerle internet olmadan konuşabilirsin.\n\n" +
+                "Ağ yoksa \"TELSİZ AĞI KUR\" ile kendi ağını yayınla."
+            !svc.directSupported() ->
+                "Ağ yok. Bu cihaz Wi-Fi Direct desteklemiyor —\n" +
+                    "biri telefonundan hotspot açsın, diğerleri bağlansın."
+            svc.directState != "kapalı" && svc.directState != "ağ açık" ->
+                "Ağ yok.\n" + svc.directState + "\n\nWiFi'nin açık olduğundan emin ol."
+            else ->
+                "Ağ yok — ne WiFi ne hotspot.\n\n" +
+                    "\"TELSİZ AĞI KUR\"a bas: telefonun kendi kablosuz ağını\n" +
+                    "yayınlar, diğerleri ona bağlanır. İnternet gerekmez.\n" +
+                    "(WiFi açık olmalı, bağlı olması gerekmiyor.)"
+        }
+    }
+
     private fun refresh() {
         val running = TelsizService.isRunning
         val svc = service
@@ -388,6 +513,9 @@ class MainActivity : Activity() {
             txtStatus.text = svc?.startError ?: "Kapalı"
             txtPeers.text = "Kanalda kimse yok"
             txtTalking.text = ""
+            txtDirect.text = "Telsiz kapalı"
+            btnDirect.text = "TELSİZ AĞI KUR"
+            btnDirect.alpha = 0.4f
             return
         }
         if (svc == null) {
@@ -395,6 +523,8 @@ class MainActivity : Activity() {
             bind()
             return
         }
+
+        refreshNetworkPanel(svc)
 
         val lanOk = svc.lanError == null
         txtNet.text = buildString {

@@ -51,6 +51,7 @@ class TelsizService : Service() {
     private var relay: RelayTransport? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var presenceThread: Thread? = null
+    private var direct: WifiDirect? = null
 
     private val peers = ConcurrentHashMap<Long, Peer>()
     private val windows = ConcurrentHashMap<Long, SeqWindow>()
@@ -67,6 +68,24 @@ class TelsizService : Service() {
 
     val lanIp: String get() = lan?.localIp ?: "-"
     val lanError: String? get() = lan?.lastError
+    val lanRebuilds: Int get() = lan?.rebuilds ?: 0
+
+    // ---- altyapısız ağ ----
+
+    val directState: String get() = direct?.state ?: "kapalı"
+    val directSsid: String? get() = direct?.ssid
+    val directPassphrase: String? get() = direct?.passphrase
+    val directClients: Int get() = direct?.clientCount ?: 0
+    val directActive: Boolean get() = direct?.active == true
+    fun directSupported(): Boolean = direct?.supported() == true
+
+    fun createDirectGroup() {
+        direct?.createGroup()
+    }
+
+    fun removeDirectGroup() {
+        direct?.removeGroup()
+    }
     val relayEnabled: Boolean get() = relay != null
     val relayConnected: Boolean get() = relay?.connected == true
     val transmitting: Boolean get() = engine?.transmitting == true
@@ -131,6 +150,13 @@ class TelsizService : Service() {
 
         lan = LanTransport(this) { buf, len -> onPacket(buf, len) }.also { it.start() }
 
+        // Grup kurulunca yeni bir ağ arayüzü doğuyor; LanTransport'un onu
+        // beklemeden yakalaması için dürtüyoruz.
+        direct = WifiDirect(this) {
+            lan?.kick()
+            updateNotification()
+        }
+
         val url = prefs.relayUrl.trim()
         relay = if (url.isNotEmpty()) {
             RelayTransport(url, channel, { buf, len -> onPacket(buf, len) }, { s ->
@@ -156,6 +182,8 @@ class TelsizService : Service() {
         presenceThread = null
         engine?.stop()
         engine = null
+        direct?.stop()
+        direct = null
         lan?.stop()
         lan = null
         relay?.stop()
@@ -294,7 +322,11 @@ class TelsizService : Service() {
 
         val line = buildString {
             append("Kanal ").append(channel)
-            append(" · LAN ").append(if (lanError == null) "açık" else "hata")
+            when {
+                directActive -> append(" · Telsiz ağı açık")
+                lanError == null -> append(" · Yerel ağ")
+                else -> append(" · Ağ yok")
+            }
             if (relayEnabled) append(" · Relay ").append(if (relayConnected) "bağlı" else relayStatus)
         }
 

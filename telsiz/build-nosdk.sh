@@ -42,7 +42,7 @@ fetch() { # url hedef
     curl -fsSL --retry 3 -o "$2" "$1"
 }
 
-echo "[1/6] Araclar hazirlaniyor"
+echo "[1/7] Araclar hazirlaniyor"
 fetch "https://github.com/JetBrains/kotlin/releases/download/v$KOTLIN_VERSION/kotlin-compiler-$KOTLIN_VERSION.zip" tools/kotlinc.zip
 [ -d kotlinc ] || unzip -q tools/kotlinc.zip -d .
 fetch "https://raw.githubusercontent.com/Sable/android-platforms/master/android-35/android.jar" android.jar
@@ -57,20 +57,28 @@ fi
 
 mkdir -p tools/classes
 javac -nowarn -cp tools/apksig.jar -d tools/classes \
-    "$ROOT/buildtools/AxmlEncoder.java" "$ROOT/buildtools/Sign.java"
+    "$ROOT/buildtools/AxmlEncoder.java" "$ROOT/buildtools/Sign.java" \
+    "$ROOT/buildtools/ArscEncoder.java" "$ROOT/buildtools/MakeIcon.java"
 
-echo "[2/6] Kotlin derleniyor"
+echo "[2/7] Kotlin derleniyor"
 rm -rf classes stage
 # dx invokedynamic'i okuyamiyor: lambdalar sinif olarak uretilsin.
 kotlinc/bin/kotlinc -nowarn -cp android.jar -jvm-target 1.8 \
     -Xlambdas=class -Xsam-conversions=class -d classes "$SRC"/*.kt
 
-echo "[3/6] DEX uretiliyor"
+echo "[3/7] DEX uretiliyor"
 mkdir -p stage
 java -Xmx2g -cp tools/dx.jar com.android.dx.command.Main --dex \
     --min-sdk-version=$MIN_SDK --output=stage/classes.dex classes stdlib.jar
 
-echo "[4/6] Manifest ikili formata cevriliyor"
+echo "[4/7] Ikon ve kaynak tablosu uretiliyor"
+# Uygulamanin tek kaynagi ikon. aapt2 olmadigi icin PNG'yi biz ciziyor,
+# resources.arsc'yi biz yaziyoruz.
+mkdir -p stage/res/drawable-xxxhdpi
+java -cp tools/classes MakeIcon 192 stage/res/drawable-xxxhdpi/ic_launcher.png
+java -cp tools/classes ArscEncoder "$PKG" res/drawable-xxxhdpi/ic_launcher.png stage/resources.arsc
+
+echo "[5/7] Manifest ikili formata cevriliyor"
 python3 - "$MANIFEST" stage/manifest-src.xml "$PKG" "$MIN_SDK" "$TARGET_SDK" \
          "$VERSION_CODE" "$VERSION_NAME" <<'PY'
 import sys
@@ -83,16 +91,19 @@ s = s.replace(
     '    package="%s"\n    android:versionCode="%s"\n    android:versionName="%s">\n'
     '    <uses-sdk android:minSdkVersion="%s" android:targetSdkVersion="%s" />'
     % (pkg, vc, vn, mn, tg))
+# Ikon kaynagi ArscEncoder'in urettigi tabloda 0x7f010000'da duruyor.
+s = s.replace('<application\n', '<application\n        android:icon="@0x7f010000"\n', 1)
+assert 'android:icon' in s, 'ikon niteligi eklenemedi'
 open(dst, 'w', encoding='utf-8').write(s)
 PY
 java -cp "tools/classes:android.jar" AxmlEncoder stage/manifest-src.xml stage/AndroidManifest.xml
 rm -f stage/manifest-src.xml
 
-echo "[5/6] Paketleniyor"
+echo "[6/7] Paketleniyor"
 rm -f unsigned.apk telsiz.apk
-(cd stage && zip -q -X ../unsigned.apk AndroidManifest.xml classes.dex)
+(cd stage && zip -q -X -r ../unsigned.apk AndroidManifest.xml resources.arsc classes.dex res)
 
-echo "[6/6] Imzalaniyor"
+echo "[7/7] Imzalaniyor"
 # Anahtar depoya girmiyor. Yeniden uretilirse imza degisir; o durumda
 # telefondaki eski surumu once kaldirmak gerekir.
 if [ ! -f telsiz.p12 ]; then

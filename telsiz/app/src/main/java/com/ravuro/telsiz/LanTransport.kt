@@ -4,18 +4,25 @@ import android.content.Context
 import android.net.wifi.WifiManager
 import java.net.DatagramPacket
 import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.MulticastSocket
 import java.net.NetworkInterface
 
 /**
- * Şebeke gerekmeyen yol: aynı WiFi ağındaki ya da bir telefonun hotspot'una
- * bağlı cihazlar birbirini doğrudan duyar.
+ * Şebeke gerekmeyen yol: aynı yerel ağdaki cihazlar birbirini doğrudan duyar.
+ * Bu ağ bir router, bir hotspot ya da bir Wi-Fi Direct grubu olabilir — hepsi
+ * bu taşıyıcı için sadece bir arayüz.
  *
  * Hem multicast grubuna hem de her arayüzün yayın (broadcast) adresine
- * gönderiyoruz: bazı router'lar ve çoğu hotspot multicast'i düşürürken
- * subnet broadcast'i geçiriyor, bazılarında tersi oluyor. İkisini birden
- * göndermek "kurdum, çalışmadı" durumunu büyük ölçüde ortadan kaldırıyor;
- * kopyalar zaten sıra numarasıyla eleniyor.
+ * gönderiyoruz: bazı router'lar ve çoğu hotspot multicast'i düşürürken subnet
+ * broadcast'i geçiriyor, bazılarında tersi oluyor. Kopyalar sıra numarasıyla
+ * zaten eleniyor.
+ *
+ * Ağ değişimi: telefon sürekli ağ değiştiriyor — WiFi kopuyor, hotspot
+ * açılıyor, Wi-Fi Direct grubu kuruluyor. Soketi bir kez açıp bırakmak
+ * yetmiyor; multicast üyeliği eski arayüze bağlı kalıyor ve ağ geri gelse
+ * bile ses akmıyor. Bu yüzden arayüz listesi düzenli olarak izleniyor ve
+ * değiştiği anda soket kapatılıp yeniden kuruluyor.
  */
 class LanTransport(
     private val ctx: Context,
@@ -24,69 +31,43 @@ class LanTransport(
     companion object {
         const val PORT = 47771
         const val GROUP = "239.255.42.99"
+        private const val WATCH_MS = 2500L
     }
 
     @Volatile private var running = false
-    private var socket: MulticastSocket? = null
+    @Volatile private var socket: MulticastSocket? = null
     private var multicastLock: WifiManager.MulticastLock? = null
     private var rxThread: Thread? = null
-    private var refreshThread: Thread? = null
+    private var watchThread: Thread? = null
 
     @Volatile private var targets: List<InetAddress> = emptyList()
+    @Volatile private var signature: String = ""
+
     @Volatile var localIp: String = "-"
         private set
     @Volatile var lastError: String? = null
+        private set
+    /** Kaç kez yeniden kurulduğu — arayüzde ağ oynaklığını göstermek için. */
+    @Volatile var rebuilds: Int = 0
         private set
 
     fun start() {
         if (running) return
         running = true
-
-        // Multicast/broadcast paketleri WiFi sürücüsü tarafından süzülmesin.
-        try {
-            val wifi = ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            multicastLock = wifi.createMulticastLock("telsiz").apply {
-                setReferenceCounted(false)
-                acquire()
-            }
-        } catch (_: Exception) {
-        }
-
-        try {
-            // MulticastSocket kurucusu SO_REUSEADDR'ı zaten açıyor.
-            val s = MulticastSocket(PORT)
-            s.broadcast = true
-            s.timeToLive = 1
-            s.soTimeout = 1000
-            joinOnAllInterfaces(s)
-            socket = s
-            lastError = null
-        } catch (e: Exception) {
-            lastError = e.message ?: "soket açılamadı"
-            running = false
-            releaseLock()
-            return
-        }
-
-        refreshTargets()
+        acquireLock()
+        scanInterfaces(force = true)
 
         rxThread = Thread({ receiveLoop() }, "telsiz-lan-rx").apply { isDaemon = true; start() }
-        refreshThread = Thread({
-            while (running) {
-                try { Thread.sleep(5000) } catch (_: InterruptedException) { break }
-                refreshTargets()
-            }
-        }, "telsiz-lan-net").apply { isDaemon = true; start() }
+        watchThread = Thread({ watchLoop() }, "telsiz-lan-net").apply { isDaemon = true; start() }
     }
 
     fun stop() {
         running = false
+        watchThread?.interrupt()
         rxThread?.interrupt()
-        refreshThread?.interrupt()
-        try { socket?.close() } catch (_: Exception) {}
-        socket = null
+        closeSocket()
+        watchThread = null
         rxThread = null
-        refreshThread = null
         releaseLock()
     }
 
@@ -96,26 +77,42 @@ class LanTransport(
             try {
                 s.send(DatagramPacket(data, 0, len, addr, PORT))
             } catch (_: Exception) {
-                // Tek bir arayüz kapanmış olabilir; diğerlerine göndermeye devam.
+                // Bir arayüz kapanmış olabilir; diğerlerine göndermeye devam.
+                // Kalıcıysa izleyici zaten soketi yeniden kuracak.
             }
         }
     }
 
-    private fun receiveLoop() {
-        val buf = ByteArray(Packet.MAX)
-        val dp = DatagramPacket(buf, buf.size)
-        while (running) {
-            try {
-                dp.length = buf.size
-                socket?.receive(dp) ?: break
-                onPacket(buf, dp.length)
-            } catch (_: java.net.SocketTimeoutException) {
-                // soTimeout: running bayrağını tekrar kontrol etmek için normal
-            } catch (e: Exception) {
-                if (running) lastError = e.message
-                break
-            }
+    /** Wi-Fi Direct grubu kurulduğunda arayüzü beklemeden yakalamak için. */
+    fun kick() {
+        if (running) scanInterfaces(force = false)
+    }
+
+    // ---- soket yaşam döngüsü ----
+
+    private fun openSocket(): Boolean {
+        closeSocket()
+        return try {
+            // MulticastSocket kurucusu SO_REUSEADDR'ı zaten açıyor.
+            val s = MulticastSocket(PORT)
+            s.broadcast = true
+            s.timeToLive = 1
+            s.soTimeout = 1000
+            joinOnAllInterfaces(s)
+            socket = s
+            lastError = null
+            true
+        } catch (e: Exception) {
+            lastError = e.message ?: "soket açılamadı"
+            socket = null
+            false
         }
+    }
+
+    private fun closeSocket() {
+        val s = socket
+        socket = null
+        try { s?.close() } catch (_: Exception) {}
     }
 
     private fun joinOnAllInterfaces(s: MulticastSocket) {
@@ -127,9 +124,10 @@ class LanTransport(
                 val ni = ifs.nextElement()
                 try {
                     if (!ni.isUp || ni.isLoopback || !ni.supportsMulticast()) continue
-                    s.joinGroup(java.net.InetSocketAddress(group, PORT), ni)
+                    s.joinGroup(InetSocketAddress(group, PORT), ni)
                     joined = true
                 } catch (_: Exception) {
+                    // Bu arayüz multicast'e izin vermiyor; broadcast yolu duruyor.
                 }
             }
         } catch (_: Exception) {
@@ -140,10 +138,26 @@ class LanTransport(
         }
     }
 
-    private fun refreshTargets() {
+    // ---- ağ izleme ----
+
+    private fun watchLoop() {
+        while (running) {
+            try { Thread.sleep(WATCH_MS) } catch (_: InterruptedException) { return }
+            if (!running) return
+            scanInterfaces(force = false)
+        }
+    }
+
+    /**
+     * Arayüzleri tarar. Adresler değiştiyse (WiFi kopmuş, hotspot açılmış,
+     * Wi-Fi Direct grubu kurulmuş) soketi yeniden kurar.
+     */
+    @Synchronized
+    private fun scanInterfaces(force: Boolean) {
         val list = ArrayList<InetAddress>(4)
         try { list.add(InetAddress.getByName(GROUP)) } catch (_: Exception) {}
 
+        val sig = StringBuilder()
         var ip = "-"
         try {
             val ifs = NetworkInterface.getNetworkInterfaces()
@@ -152,16 +166,72 @@ class LanTransport(
                 if (!ni.isUp || ni.isLoopback) continue
                 for (ia in ni.interfaceAddresses) {
                     val a = ia.address ?: continue
-                    if (a is java.net.Inet4Address) {
-                        if (ip == "-") ip = a.hostAddress ?: "-"
-                        ia.broadcast?.let { if (!list.contains(it)) list.add(it) }
-                    }
+                    if (a !is java.net.Inet4Address) continue
+                    sig.append(ni.name).append(':').append(a.hostAddress).append(';')
+                    if (ip == "-") ip = a.hostAddress ?: "-"
+                    ia.broadcast?.let { if (!list.contains(it)) list.add(it) }
                 }
             }
         } catch (_: Exception) {
         }
+
         localIp = ip
         targets = list
+
+        val now = sig.toString()
+        val changed = now != signature
+        signature = now
+
+        if (force || changed || socket == null) {
+            if (!force && changed) rebuilds++
+            if (openSocket()) {
+                // Yeni arayüzün yayın adresleri az önce hesaplandı; soket
+                // yeniden kurulduğu için üyelikler de tazelendi.
+                lastError = if (ip == "-") "ağ yok" else null
+            }
+        } else if (ip == "-") {
+            lastError = "ağ yok"
+        }
+    }
+
+    // ---- alım ----
+
+    private fun receiveLoop() {
+        val buf = ByteArray(Packet.MAX)
+        val dp = DatagramPacket(buf, buf.size)
+        while (running) {
+            val s = socket
+            if (s == null) {
+                try { Thread.sleep(200) } catch (_: InterruptedException) { return }
+                continue
+            }
+            try {
+                dp.length = buf.size
+                s.receive(dp)
+                onPacket(buf, dp.length)
+            } catch (_: java.net.SocketTimeoutException) {
+                // running bayrağını yeniden kontrol etmek için normal
+            } catch (_: Exception) {
+                // Soket yeniden kuruluyor olabilir: döngüden çıkmıyoruz,
+                // yenisini bekliyoruz. Eskiden burada break vardı ve ağ
+                // değişince alım kalıcı olarak duruyordu.
+                if (!running) return
+                try { Thread.sleep(200) } catch (_: InterruptedException) { return }
+            }
+        }
+    }
+
+    // ---- multicast kilidi ----
+
+    private fun acquireLock() {
+        try {
+            val wifi = ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            multicastLock = wifi.createMulticastLock("telsiz").apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        } catch (_: Exception) {
+        }
     }
 
     private fun releaseLock() {
