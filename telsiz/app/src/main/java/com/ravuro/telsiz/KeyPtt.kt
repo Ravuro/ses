@@ -3,6 +3,7 @@ package com.ravuro.telsiz
 import android.content.Context
 import android.media.AudioManager
 import android.media.VolumeProvider
+import android.media.MediaMetadata
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
 
@@ -47,12 +48,28 @@ class KeyPtt(
     @Volatile var available = false
         private set
 
+    /**
+     * Sisteme kaç kez ses tuşu olayı geldiği. Ekran kapalıyken bunun artıp
+     * artmadığı, yolun çalışıp çalışmadığını söyleyen tek işaret.
+     */
+    @Volatile var events: Int = 0
+        private set
+
     fun start() {
         if (running) return
         running = true
         try {
             val s = MediaSession(ctx, "telsiz-ptt")
             s.setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS or MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS)
+            // Bazı cihazlar geri çağırımı ve künyesi olmayan oturumu gerçek
+            // saymıyor ve ses tuşlarını ona yönlendirmiyor.
+            s.setCallback(object : MediaSession.Callback() {})
+            s.setMetadata(
+                MediaMetadata.Builder()
+                    .putString(MediaMetadata.METADATA_KEY_TITLE, "Telsiz")
+                    .putString(MediaMetadata.METADATA_KEY_ARTIST, "Kanal açık")
+                    .build()
+            )
             // Oturumun ses tuşlarını alabilmesi için etkin ve "çalıyor"
             // görünmesi gerekiyor.
             s.setPlaybackState(
@@ -64,6 +81,7 @@ class KeyPtt(
             s.setPlaybackToRemote(object :
                 VolumeProvider(VOLUME_CONTROL_RELATIVE, 100, 50) {
                 override fun onAdjustVolume(direction: Int) {
+                    events++
                     when {
                         direction > 0 -> onVolumeUp()
                         direction < 0 -> passThroughVolumeDown()

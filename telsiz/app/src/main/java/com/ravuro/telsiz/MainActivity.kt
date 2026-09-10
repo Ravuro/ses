@@ -838,7 +838,12 @@ class MainActivity : Activity() {
 
         txtHint.text = when {
             !prefs.volumePtt -> "Konuşmak için düğmeyi basılı tut"
-            svc.keyPttReady -> "Düğmeyi ya da ses yükseltme tuşunu basılı tut\nEkran kapalıyken de çalışır"
+            svc.keyPttReady -> {
+                val n = svc.keyPttEvents
+                "Düğmeyi ya da ses yükseltme tuşunu basılı tut\n" +
+                    if (n > 0) "Ekran kapalıyken de çalışıyor · $n olay"
+                    else "Ekran kapalıyken de çalışmalı — deneyip buraya bak"
+            }
             else -> "Düğmeyi ya da ses yükseltme tuşunu basılı tut"
         }
     }

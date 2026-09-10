@@ -277,21 +277,32 @@ class AudioEngine(private val onFrame: (ByteArray, Int, Int, Int) -> Unit) {
                 for (i in 0 until n) mix[i] += f[i].toInt()
             }
 
-            if (active == 0) {
-                try { Thread.sleep(10) } catch (_: InterruptedException) { return }
-                continue
-            }
-            // Konuşurken gelen sesi çalma: hoparlör mikrofona geri kaçmasın.
-            if (halfDuplex && transmitting) continue
-
-            for (i in 0 until FRAME_SAMPLES) {
-                var v = mix[i]
-                if (v > 32767) v = 32767
-                if (v < -32768) v = -32768
-                out[i] = v.toShort()
+            // Boştayken bile sessizlik yazıyoruz, iki sebeple:
+            //
+            // 1) Akış canlı kalıyor. Boşta yazmayı bırakınca AudioTrack aç
+            //    kalıyor ve konuşma başlarken kesik bir çıtırtı oluyordu.
+            // 2) Android ses tuşlarını "şu an ses çalan" uygulamaya
+            //    yönlendiriyor. Arada susarsak sistem bizi çalmıyor sayıp
+            //    tuşları vermiyor — ekran kapalıyken bas-konuş bu yüzden
+            //    çalışmıyordu.
+            //
+            // Konuşurken de sessizlik yazılıyor: hoparlör mikrofona kaçmasın
+            // diye gelen ses çalınmıyor ama akış kesilmiyor.
+            val mute = active == 0 || (halfDuplex && transmitting)
+            if (mute) {
+                java.util.Arrays.fill(out, 0)
+            } else {
+                for (i in 0 until FRAME_SAMPLES) {
+                    var v = mix[i]
+                    if (v > 32767) v = 32767
+                    if (v < -32768) v = -32768
+                    out[i] = v.toShort()
+                }
             }
             try {
-                track?.write(out, 0, FRAME_SAMPLES)
+                // write() bloklayarak döngüyü gerçek zamana göre hızlandırıyor;
+                // ayrıca uyumaya gerek kalmıyor.
+                track?.write(out, 0, FRAME_SAMPLES) ?: return
             } catch (_: Exception) {
                 return
             }

@@ -9,6 +9,9 @@ import android.content.Context
 import android.content.Intent
 import android.os.Binder
 import android.os.IBinder
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.os.PowerManager
 import java.util.concurrent.ConcurrentHashMap
 
@@ -56,6 +59,7 @@ class TelsizService : Service() {
     private var presenceThread: Thread? = null
     private var direct: WifiDirect? = null
     private var keyPtt: KeyPtt? = null
+    private var focusRequest: AudioFocusRequest? = null
 
     private val peers = ConcurrentHashMap<Long, Peer>()
     private val windows = ConcurrentHashMap<Long, SeqWindow>()
@@ -103,6 +107,9 @@ class TelsizService : Service() {
 
     /** Ekran kapalıyken ses tuşu dinlenebiliyor mu? */
     val keyPttReady: Boolean get() = keyPtt?.available == true
+
+    /** Sisteme gelen ses tuşu olayı sayısı — yolun çalıştığının kanıtı. */
+    val keyPttEvents: Int get() = keyPtt?.events ?: 0
     val transmitting: Boolean get() = engine?.transmitting == true
 
     private val txBuf = ByteArray(Packet.MAX)
@@ -182,6 +189,8 @@ class TelsizService : Service() {
             null
         }
 
+        requestAudioFocus()
+
         // Ekran kapalıyken ses tuşunu duyabilmek için medya oturumu.
         if (prefs.volumePtt) {
             keyPtt = KeyPtt(this, { startTx() }, { stopTx() }).also { it.start() }
@@ -219,6 +228,7 @@ class TelsizService : Service() {
         presenceThread = null
         keyPtt?.stop()
         keyPtt = null
+        abandonAudioFocus()
         engine?.stop()
         engine = null
         direct?.stop()
@@ -252,6 +262,41 @@ class TelsizService : Service() {
         // girdiği için kendiliğinden son sözün ardına düşüyor.
         if (prefs.beep) sendBeep(Beep.END)
         updateNotification()
+    }
+
+    /**
+     * Ses odağı. Yalnız nezaket değil: Android ses tuşlarını odağı elinde
+     * tutan uygulamanın medya oturumuna yönlendiriyor, dolayısıyla ekran
+     * kapalıyken bas-konuşun çalışması buna bağlı. Odak alındığında çalan
+     * müzik duruyor — telsiz açıkken beklenen davranış.
+     */
+    private fun requestAudioFocus() {
+        try {
+            val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
+                .setWillPauseWhenDucked(false)
+                .setOnAudioFocusChangeListener { }
+                .build()
+            am.requestAudioFocus(req)
+            focusRequest = req
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun abandonAudioFocus() {
+        val req = focusRequest ?: return
+        focusRequest = null
+        try {
+            val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            am.abandonAudioFocusRequest(req)
+        } catch (_: Exception) {
+        }
     }
 
     private val beepPayload = ByteArray(1)
