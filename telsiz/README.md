@@ -49,6 +49,26 @@ Android 8.0 ve üstü gerekir.
    tuşunu** basılı tutmak da aynı işi yapar — ekran kapalıyken bile. Ses
    kısma tuşu ses ayarı olarak kalır. İstemezsen ayarlardan kapatabilirsin.
 
+### Kişiye özel ses ve sessize alma
+
+Bas-konuşa basılı tutunca kanaldakiler düğmenin üstünde bir yayda beliriyor;
+parmağı birinin üzerine sürükleyince ses yalnızca ona gidiyor, kimse
+seçilmezse herkese. Kalabalıkta baloncuklar iki halkaya bölünüyor.
+
+Basıldığı an hedef henüz belli değil. O aradaki sesi kaybetmemek ve
+yanlışlıkla herkese göndermemek için kareler hedef kesinleşene kadar
+bekletiliyor, sonra hepsi birden doğru hedefe gidiyor. Hedef, parmak 300 ms
+kıpırdamayınca kesinleşiyor — yerinde tutan kişi gecikme hissetmiyor,
+sürükleyen kişi seçimini bitirene kadar ses bekliyor.
+
+Kişi listesinde bir isme dokunmak onu sessize alıyor: yoklaması gelmeye
+devam ediyor, listede kalıyor, ama sesi çalınmıyor.
+
+**Bu gizlilik değil.** Hedef alanı yalnızca bir yönlendirme bilgisi; paket
+yine kanaldaki herkese ulaşıyor ve alıcı kendine değilse çalmıyor. Dinlemek
+isteyen biri bu alanı yok sayabilir. Gerçek gizlilik için yükün
+şifrelenmesi gerekiyor.
+
 ### Kaçırdığını tekrar dinle
 
 Gelen ses konuşma parçalarına ayrılarak bellekte tutuluyor: araya 900 ms'den

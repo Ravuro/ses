@@ -54,7 +54,7 @@ class TelsizService : Service() {
     /** Paketin hangi taşıyıcıdan geldiği — köprüleme için gerekli. */
     private enum class Source { LAN, RELAY }
 
-    class Peer(nick: String) {
+    class Peer(val id: Long, nick: String) {
         @Volatile var nick: String = nick
         @Volatile var lastSeen: Long = System.currentTimeMillis()
         @Volatile var lastAudio: Long = 0
@@ -77,6 +77,8 @@ class TelsizService : Service() {
     private var focusRequest: AudioFocusRequest? = null
 
     private val peers = ConcurrentHashMap<Long, Peer>()
+    /** Sesi çalınmayan kişiler. Yoklamaları geliyor, listede kalıyorlar. */
+    private val muted = java.util.Collections.newSetFromMap(ConcurrentHashMap<Long, Boolean>())
     private val windows = ConcurrentHashMap<Long, SeqWindow>()
 
     private var deviceId: Long = 0
@@ -271,11 +273,68 @@ class TelsizService : Service() {
         stopForegroundCompat()
     }
 
+    // ---- sessize alma ----
+
+    fun isMuted(id: Long): Boolean = muted.contains(id)
+
+    fun toggleMute(id: Long): Boolean {
+        val now = if (muted.contains(id)) {
+            muted.remove(id); false
+        } else {
+            muted.add(id); true
+        }
+        // Sessize alınan kişinin biriken sesi çalınmasın.
+        if (now) engine?.forget(id)
+        return now
+    }
+
+    // ---- kişiye özel gönderim ----
+    //
+    // Bas-konuşa basıldığı anda hedef henüz belli değil: kullanıcı parmağını
+    // sürükleyerek seçiyor. O aradaki sesi kaybetmemek ve yanlışlıkla
+    // herkese göndermemek için kareler hedef belli olana kadar bekletiliyor,
+    // sonra hepsi birden doğru hedefe gidiyor.
+
+    private class PendingFrame(val data: ByteArray, val predictor: Int, val index: Int)
+
+    private val pendingLock = Object()
+    private val pending = ArrayList<PendingFrame>()
+    @Volatile private var targetPending = false
+    @Volatile private var currentTarget = 0L
+
+    /** Konuşurken seçilen hedef; 0 = herkes. */
+    val talkTarget: Long get() = currentTarget
+
+    fun resolveTarget(target: Long) {
+        val flush: List<PendingFrame>
+        synchronized(pendingLock) {
+            if (!targetPending) {
+                currentTarget = target
+                return
+            }
+            currentTarget = target
+            targetPending = false
+            flush = ArrayList(pending)
+            pending.clear()
+        }
+        for (f in flush) sendPacket(Packet.TYPE_AUDIO, f.data, f.data.size, f.predictor, f.index)
+    }
+
     // ---- bas-konuş ----
 
-    fun startTx() {
+    /**
+     * [pendingTarget] verilirse hedef seçilene kadar kareler bekletilir.
+     * Ekrandaki halka seçiciden gelen basışlar böyle başlıyor; ses tuşu ve
+     * kulaklık düğmesi doğrudan herkese gidiyor.
+     */
+    fun startTx(pendingTarget: Boolean = false) {
         val eng = engine ?: return
         if (eng.transmitting) return          // tuş ve dokunma aynı anda gelebilir
+        synchronized(pendingLock) {
+            pending.clear()
+            targetPending = pendingTarget
+            currentTarget = 0L
+        }
         if (prefs.beep) sendBeep(Beep.START)
         eng.startTx()
         updateNotification()
@@ -285,9 +344,12 @@ class TelsizService : Service() {
         val eng = engine ?: return
         if (!eng.transmitting) return
         eng.stopTx()
+        // Hedef hiç seçilmediyse (parmak hemen kalktı) herkese gitsin.
+        if (targetPending) resolveTarget(0L)
         // Bitiş bipi sesten SONRA gönderiliyor; alıcıda aynı kuyruğa
         // girdiği için kendiliğinden son sözün ardına düşüyor.
         if (prefs.beep) sendBeep(Beep.END)
+        currentTarget = 0L
         updateNotification()
     }
 
@@ -338,6 +400,14 @@ class TelsizService : Service() {
     // ---- ağ ----
 
     private fun broadcastAudio(data: ByteArray, len: Int, predictor: Int, index: Int) {
+        synchronized(pendingLock) {
+            if (targetPending) {
+                // Seçim uzarsa en eskiyi at: 2 saniyeden fazlası zaten geç.
+                if (pending.size >= 50) pending.removeAt(0)
+                pending.add(PendingFrame(data.copyOf(len), predictor, index))
+                return
+            }
+        }
         sendPacket(Packet.TYPE_AUDIO, data, len, predictor, index)
     }
 
@@ -359,7 +429,8 @@ class TelsizService : Service() {
     ) {
         synchronized(txBuf) {
             val total = Packet.build(
-                txBuf, type, channel, deviceId, seq++, payload, len, predictor, index
+                txBuf, type, channel, deviceId, seq++, payload, len, predictor, index,
+                if (type == Packet.TYPE_AUDIO) currentTarget else 0L
             )
             lan?.send(txBuf, total)
             relay?.send(txBuf, total)
@@ -372,6 +443,9 @@ class TelsizService : Service() {
         if (!Packet.parse(buf, len, parsed)) return
         if (parsed.senderId == deviceId) return          // kendi sesimiz
         if (parsed.channel != channel) return            // başka kanal
+        // Kişiye özel: bize değilse çalmıyoruz. Bu gizlilik değil, nezaket —
+        // paket yine herkese ulaşıyor.
+        if (parsed.target != 0L && parsed.target != deviceId) return
 
         // Aynı paket hem LAN'dan hem relay'den gelebilir.
         val w = windows.getOrPut(parsed.senderId) { SeqWindow() }
@@ -391,26 +465,30 @@ class TelsizService : Service() {
         val now = System.currentTimeMillis()
         when (parsed.type) {
             Packet.TYPE_AUDIO -> {
-                peers.getOrPut(parsed.senderId) { Peer("?") }.also {
+                peers.getOrPut(parsed.senderId) { Peer(parsed.senderId, "?") }.also {
                     it.lastSeen = now
                     it.lastAudio = now
                 }
-                engine?.enqueue(
-                    parsed.senderId, buf, parsed.payloadOff, parsed.payloadLen,
-                    parsed.predictor, parsed.index
-                )
+                if (!muted.contains(parsed.senderId)) {
+                    engine?.enqueue(
+                        parsed.senderId, buf, parsed.payloadOff, parsed.payloadLen,
+                        parsed.predictor, parsed.index
+                    )
+                }
             }
             Packet.TYPE_BEEP -> {
                 val kind = if (parsed.payloadLen > 0) buf[parsed.payloadOff] else Beep.START
-                val p = peers.getOrPut(parsed.senderId) { Peer("?") }
+                val p = peers.getOrPut(parsed.senderId) { Peer(parsed.senderId, "?") }
                 p.lastSeen = now
                 // Başlangıç bipi konuşmanın habercisi; bitiş bipi değil.
                 if (kind == Beep.START) p.lastAudio = now
-                engine?.enqueuePcm(parsed.senderId, Beep.pcm(kind))
+                if (!muted.contains(parsed.senderId)) {
+                    engine?.enqueuePcm(parsed.senderId, Beep.pcm(kind))
+                }
             }
             Packet.TYPE_PRESENCE -> {
                 val name = String(buf, parsed.payloadOff, parsed.payloadLen, Charsets.UTF_8)
-                val p = peers.getOrPut(parsed.senderId) { Peer(name) }
+                val p = peers.getOrPut(parsed.senderId) { Peer(parsed.senderId, name) }
                 p.nick = name
                 p.lastSeen = now
             }

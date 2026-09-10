@@ -28,6 +28,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -110,6 +111,7 @@ class MainActivity : Activity() {
     private lateinit var stateLabel: TextView
     private lateinit var btnPower: Button
     private lateinit var ptt: PttButton
+    private lateinit var picker: TargetPicker
     private lateinit var txtBanner: TextView
     private lateinit var txtHint: TextView
 
@@ -334,12 +336,30 @@ class MainActivity : Activity() {
                             toast("Önce BAŞLAT'a bas")
                         } else {
                             v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                            service?.startTx()
+                            // Hedef henüz belli değil: ses bekletiliyor.
+                            service?.startTx(pendingTarget = true)
+                            openPicker()
+                            armSettle()
                             refresh()
                         }
                         true
                     }
+                    MotionEvent.ACTION_MOVE -> {
+                        if (picker.visibility == View.VISIBLE) {
+                            val (x, y) = toPicker(ev)
+                            val before = picker.selectedId
+                            picker.moveFinger(x, y)
+                            if (picker.selectedId != before) {
+                                v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                            }
+                            armSettle()
+                        }
+                        true
+                    }
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        ui.removeCallbacks(settle)
+                        service?.resolveTarget(picker.selectedId)
+                        picker.close()
                         service?.stopTx()
                         refresh()
                         true
@@ -362,7 +382,56 @@ class MainActivity : Activity() {
         }
         root.addView(txtHint)
 
-        return root
+        picker = TargetPicker(this).apply { visibility = View.GONE }
+        val stack = FrameLayout(this)
+        stack.addView(root, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+        ))
+        stack.addView(picker, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
+        ))
+        return stack
+    }
+
+    // ---- halka seçici ----
+    //
+    // Parmak bas-konuş düğmesinde başlayıp dışına çıktığı için koordinatlar
+    // ekran üzerinden katmana çevriliyor.
+
+    private val loc = IntArray(2)
+
+    private fun toPicker(ev: MotionEvent): Pair<Float, Float> {
+        picker.getLocationOnScreen(loc)
+        return (ev.rawX - loc[0]) to (ev.rawY - loc[1])
+    }
+
+    private fun openPicker() {
+        val svc = service ?: return
+        val items = svc.peerList().map { TargetPicker.Item(it.id, it.nick) }
+        picker.getLocationOnScreen(loc)
+        val px = loc[0]
+        val py = loc[1]
+        ptt.getLocationOnScreen(loc)
+        picker.open(
+            items,
+            (loc[0] - px + ptt.width / 2).toFloat(),
+            (loc[1] - py + ptt.height / 2).toFloat()
+        )
+    }
+
+    /**
+     * Parmak durunca hedefi kesinleştir. Böylece hem yerinde tutan kişi
+     * gecikmeden herkese konuşuyor, hem de sürükleyen kişi seçimini
+     * bitirene kadar ses bekletiliyor.
+     */
+    private val settle = Runnable {
+        service?.resolveTarget(picker.selectedId)
+        refresh()
+    }
+
+    private fun armSettle() {
+        ui.removeCallbacks(settle)
+        ui.postDelayed(settle, 300)
     }
 
     private fun marginTop(v: Int) = LinearLayout.LayoutParams(
@@ -1009,7 +1078,9 @@ class MainActivity : Activity() {
         val talking = svc.talkingNow()
         when {
             svc.transmitting -> {
-                txtBanner.text = "MİKROFON AÇIK"
+                val t = svc.talkTarget
+                val ad = if (t != 0L) svc.peerList().firstOrNull { it.id == t }?.nick else null
+                txtBanner.text = if (ad != null) "YALNIZCA " + ad.uppercase() else "MİKROFON AÇIK"
                 txtBanner.setTextColor(GREEN)
             }
             talking.isNotEmpty() -> {
@@ -1040,7 +1111,10 @@ class MainActivity : Activity() {
     private fun refreshPeers(svc: TelsizService) {
         val peers = svc.peerList()
         val talking = svc.talkingNow().toSet()
-        val sig = peers.joinToString("|") { it.nick + (if (talking.contains(it.nick)) "*" else "") }
+        val sig = peers.joinToString("|") {
+            it.nick + (if (talking.contains(it.nick)) "*" else "") +
+                (if (svc.isMuted(it.id)) "#" else "")
+        }
         peersCount.text = peers.size.toString()
         if (sig == peersSignature) return
         peersSignature = sig
@@ -1055,10 +1129,18 @@ class MainActivity : Activity() {
 
         for ((i, p) in peers.withIndex()) {
             val speaking = talking.contains(p.nick)
+            val isMuted = svc.isMuted(p.id)
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(0, dp(9), 0, dp(9))
+                alpha = if (isMuted) 0.45f else 1f
+                setOnClickListener {
+                    val now = service?.toggleMute(p.id) == true
+                    toast(if (now) p.nick + " sessize alındı" else p.nick + " tekrar duyulacak")
+                    peersSignature = ""
+                    refresh()
+                }
             }
             row.addView(TextView(this).apply {
                 text = initials(p.nick)
@@ -1077,10 +1159,18 @@ class MainActivity : Activity() {
                 setPadding(dp(12), 0, 0, 0)
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             row.addView(TextView(this).apply {
-                text = if (speaking) "KONUŞUYOR" else "dinliyor"
-                setTextColor(if (speaking) CYAN else DIM)
+                text = when {
+                    isMuted -> "SESSİZDE"
+                    speaking -> "KONUŞUYOR"
+                    else -> "dinliyor"
+                }
+                setTextColor(when {
+                    isMuted -> AMBER
+                    speaking -> CYAN
+                    else -> DIM
+                })
                 textSize = 10f
-                typeface = Fonts.mono(context, bold = speaking)
+                typeface = Fonts.mono(context, bold = speaking || isMuted)
                 letterSpacing = 0.08f
             })
             peersList.addView(row)

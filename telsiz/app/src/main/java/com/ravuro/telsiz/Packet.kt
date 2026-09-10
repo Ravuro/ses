@@ -13,19 +13,27 @@ package com.ravuro.telsiz
  *  20..21 yük uzunluğu (uint16)
  *  22..23 ADPCM başlangıç öngörüsü (int16)
  *  24     ADPCM başlangıç adımı (0-88)
- *  25..   yük
+ *  25..32 hedef (int64; 0 = kanaldaki herkes)
+ *  33..   yük
  *
  * Ses paketleri kendi ADPCM başlangıç durumunu taşıyor: kodlayıcı kareler
  * boyunca akmaya devam ediyor ama her paket tek başına çözülebiliyor.
+ *
+ * Hedef alanı yalnızca bir yönlendirme bilgisi, gizlilik sağlamaz: paket
+ * yine kanaldaki herkese ulaşıyor, alıcılar kendilerine değilse çalmıyor.
+ * Dinlemek isteyen biri bu alanı yok sayabilir. Gerçek gizlilik için yükün
+ * şifrelenmesi gerekiyor.
  */
 object Packet {
 
-    const val HEADER = 25
+    const val HEADER = 33
     const val MAX = 1400
 
-    // 2: ADPCM durumu başlığa eklendi. Eski sürüm paketleri reddediyor —
-    // herkesin güncellemesi gerekiyor, karışık ses duyulmasındansa iyi.
-    const val VERSION: Byte = 2
+    // 2: ADPCM durumu başlığa eklendi.
+    // 3: hedef alanı eklendi (kişiye özel ses).
+    // Eski sürüm paketleri reddediyor — herkesin güncellemesi gerekiyor,
+    // karışık ses duyulmasındansa iyi.
+    const val VERSION: Byte = 3
     const val TYPE_AUDIO: Byte = 1
     const val TYPE_PRESENCE: Byte = 2
     /** Yükü tek bayt: 0 başlangıç bipi, 1 bitiş bipi. Ton alıcıda üretilir. */
@@ -40,6 +48,8 @@ object Packet {
         var payloadLen: Int = 0
         var predictor: Int = 0
         var index: Int = 0
+        /** 0 ise kanaldaki herkese. */
+        var target: Long = 0
     }
 
     fun build(
@@ -51,7 +61,8 @@ object Packet {
         payload: ByteArray,
         payloadLen: Int,
         predictor: Int = 0,
-        index: Int = 0
+        index: Int = 0,
+        target: Long = 0
     ): Int {
         out[0] = 'T'.code.toByte()
         out[1] = 'L'.code.toByte()
@@ -65,6 +76,7 @@ object Packet {
         putShort(out, 20, payloadLen)
         putShort(out, 22, predictor and 0xFFFF)
         out[24] = index.toByte()
+        putLong(out, 25, target)
         System.arraycopy(payload, 0, out, HEADER, payloadLen)
         return HEADER + payloadLen
     }
@@ -84,6 +96,7 @@ object Packet {
         // int16 olarak yorumla: öngörü negatif olabiliyor
         into.predictor = getShort(buf, 22).toShort().toInt()
         into.index = buf[24].toInt()
+        into.target = getLong(buf, 25)
         into.payloadOff = HEADER
         if (into.payloadLen < 0 || HEADER + into.payloadLen > len) return false
         return true
