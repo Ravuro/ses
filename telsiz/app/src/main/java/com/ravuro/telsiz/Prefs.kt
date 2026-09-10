@@ -31,6 +31,28 @@ class Prefs(ctx: Context) {
      */
     val relayUrl: String get() = DEFAULT_RELAY
 
+    /** Kanal parolası. Boşsa ses şifresiz gider. */
+    var passphrase: String
+        get() = sp.getString("pass", "") ?: ""
+        set(v) = sp.edit().putString("pass", v).apply()
+
+    /**
+     * Sıra numarasının bu açılışta başlayacağı yer.
+     *
+     * Şifrelemede nonce gönderen kimliği + sıra numarasından üretiliyor ve
+     * GCM'de aynı nonce'un tekrarı anahtarı ifşa eder. Bu yüzden sayaç
+     * uygulama yeniden başlayınca sıfırdan başlamıyor: her açılışta bir
+     * öncekinin epey ilerisinden devam ediyor.
+     */
+    fun nextSeqBase(): Int {
+        var base = sp.getInt("seqBase", 0)
+        // Int sınırına yaklaşınca başa dön. Bu noktaya ancak on binlerce
+        // açılıştan sonra gelinir.
+        if (base < 0 || base > Int.MAX_VALUE - 1_000_000) base = 0
+        sp.edit().putInt("seqBase", base + 100_000).apply()
+        return base
+    }
+
     /** Konuşmanın başında ve sonunda karşı tarafta çalan telsiz bipi. */
     var beep: Boolean
         get() = sp.getBoolean("beep", true)

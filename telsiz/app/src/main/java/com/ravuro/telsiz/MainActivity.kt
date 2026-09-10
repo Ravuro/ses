@@ -78,6 +78,8 @@ class MainActivity : Activity() {
     private lateinit var setupCard: View
     private lateinit var edtNick: EditText
     private lateinit var edtChannel: EditText
+    private lateinit var edtPass: EditText
+    private lateinit var txtLock: TextView
     private lateinit var volumeToggle: Toggle
     private lateinit var beepToggle: Toggle
 
@@ -146,6 +148,7 @@ class MainActivity : Activity() {
 
         edtNick.setText(prefs.nick)
         edtChannel.setText(prefs.channel.toString())
+        edtPass.setText(prefs.passphrase)
     }
 
     override fun onStart() {
@@ -493,7 +496,19 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(13), 0, 0, dp(5))
         }
-        side.addView(caption("KANAL"))
+        val capRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        capRow.addView(caption("KANAL"))
+        txtLock = TextView(this).apply {
+            textSize = 9f
+            typeface = Fonts.mono(context, bold = true)
+            letterSpacing = 0.14f
+            setPadding(dp(8), 0, 0, 0)
+        }
+        capRow.addView(txtLock)
+        side.addView(capRow)
         txtWhoAmI = body("", 14f, TEXT2).apply { setPadding(0, dp(3), 0, 0) }
         side.addView(txtWhoAmI)
         row.addView(side)
@@ -733,6 +748,27 @@ class MainActivity : Activity() {
         })
         wrap.addView(chCard)
 
+        val passWrap = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(14), 0, 0)
+        }
+        passWrap.addView(caption("KANAL PAROLASI").apply { setPadding(0, 0, 0, dp(8)) })
+        edtPass = field(
+            "boşsa şifresiz",
+            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
+            64
+        )
+        passWrap.addView(edtPass, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(52)
+        ))
+        passWrap.addView(body(
+            "Parola koyarsan ses şifrelenir ve yalnızca aynı parolayı " +
+                "girenler duyar. Parolayı kanaldakilere ayrıca söylemen " +
+                "gerekiyor — uygulama onu hiçbir yere göndermiyor.",
+            12f, DIM
+        ).apply { setPadding(0, dp(8), 0, 0) })
+        wrap.addView(passWrap)
+
         // Ad
         val nickWrap = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -900,6 +936,7 @@ class MainActivity : Activity() {
     private fun startSession() {
         prefs.nick = edtNick.text.toString().trim()
         prefs.channel = (edtChannel.text.toString().toIntOrNull() ?: 1).coerceIn(1, 999)
+        prefs.passphrase = edtPass.text.toString().trim()
         edtChannel.setText(prefs.channel.toString())
 
         startForegroundService(Intent(this, TelsizService::class.java))
@@ -1034,6 +1071,13 @@ class MainActivity : Activity() {
         }
 
         txtChannelBig.text = String.format("%02d", svc.currentChannel())
+        if (svc.encrypted) {
+            txtLock.text = "ŞİFRELİ"
+            txtLock.setTextColor(GREEN)
+        } else {
+            txtLock.text = "ŞİFRESİZ"
+            txtLock.setTextColor(AMBER)
+        }
         txtWhoAmI.text = svc.currentNick() + " olarak bağlısın"
 
         // Telemetri

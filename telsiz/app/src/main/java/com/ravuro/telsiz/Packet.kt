@@ -14,26 +14,34 @@ package com.ravuro.telsiz
  *  22..23 ADPCM başlangıç öngörüsü (int16)
  *  24     ADPCM başlangıç adımı (0-88)
  *  25..32 hedef (int64; 0 = kanaldaki herkes)
- *  33..   yük
+ *  33     bayraklar (bit 0: yük şifreli)
+ *  34..   yük
  *
  * Ses paketleri kendi ADPCM başlangıç durumunu taşıyor: kodlayıcı kareler
  * boyunca akmaya devam ediyor ama her paket tek başına çözülebiliyor.
  *
- * Hedef alanı yalnızca bir yönlendirme bilgisi, gizlilik sağlamaz: paket
- * yine kanaldaki herkese ulaşıyor, alıcılar kendilerine değilse çalmıyor.
- * Dinlemek isteyen biri bu alanı yok sayabilir. Gerçek gizlilik için yükün
- * şifrelenmesi gerekiyor.
+ * Başlık şifrelenmiyor — kanal ve hedef yönlendirme için gerekli — ama
+ * kimliği doğrulanıyor: şifreli paketlerde başlığın tamamı GCM'in ek
+ * doğrulama verisi olarak kullanılıyor, dolayısıyla tek bir baytı bile
+ * değiştirilen paket çözülemiyor.
+ *
+ * Hedef alanı tek başına gizlilik sağlamaz (paket yine herkese ulaşır,
+ * alıcı kendine değilse çalmaz). Gizlilik parolalı kanaldan geliyor.
  */
 object Packet {
 
-    const val HEADER = 33
+    const val HEADER = 34
     const val MAX = 1400
 
     // 2: ADPCM durumu başlığa eklendi.
     // 3: hedef alanı eklendi (kişiye özel ses).
+    // 4: bayrak baytı eklendi (şifreli yük).
     // Eski sürüm paketleri reddediyor — herkesin güncellemesi gerekiyor,
     // karışık ses duyulmasındansa iyi.
-    const val VERSION: Byte = 3
+    const val VERSION: Byte = 4
+
+    /** Yük AES-GCM ile şifreli. */
+    const val FLAG_ENCRYPTED = 1
     const val TYPE_AUDIO: Byte = 1
     const val TYPE_PRESENCE: Byte = 2
     /** Yükü tek bayt: 0 başlangıç bipi, 1 bitiş bipi. Ton alıcıda üretilir. */
@@ -50,19 +58,26 @@ object Packet {
         var index: Int = 0
         /** 0 ise kanaldaki herkese. */
         var target: Long = 0
+        var flags: Int = 0
+
+        val encrypted: Boolean get() = (flags and FLAG_ENCRYPTED) != 0
     }
 
-    fun build(
+    /**
+     * Yalnızca başlığı yazar; yükü çağıran yerleştirir. Şifreli gönderimde
+     * başlık, şifrelemenin ek doğrulama verisi olduğu için önce hazır olmalı.
+     */
+    fun buildHeader(
         out: ByteArray,
         type: Byte,
         channel: Int,
         senderId: Long,
         seq: Int,
-        payload: ByteArray,
         payloadLen: Int,
         predictor: Int = 0,
         index: Int = 0,
-        target: Long = 0
+        target: Long = 0,
+        flags: Int = 0
     ): Int {
         out[0] = 'T'.code.toByte()
         out[1] = 'L'.code.toByte()
@@ -77,6 +92,24 @@ object Packet {
         putShort(out, 22, predictor and 0xFFFF)
         out[24] = index.toByte()
         putLong(out, 25, target)
+        out[33] = flags.toByte()
+        return HEADER
+    }
+
+    /** Şifresiz paket: başlık + yükün kopyası. */
+    fun build(
+        out: ByteArray,
+        type: Byte,
+        channel: Int,
+        senderId: Long,
+        seq: Int,
+        payload: ByteArray,
+        payloadLen: Int,
+        predictor: Int = 0,
+        index: Int = 0,
+        target: Long = 0
+    ): Int {
+        buildHeader(out, type, channel, senderId, seq, payloadLen, predictor, index, target, 0)
         System.arraycopy(payload, 0, out, HEADER, payloadLen)
         return HEADER + payloadLen
     }
@@ -97,6 +130,7 @@ object Packet {
         into.predictor = getShort(buf, 22).toShort().toInt()
         into.index = buf[24].toInt()
         into.target = getLong(buf, 25)
+        into.flags = buf[33].toInt() and 0xFF
         into.payloadOff = HEADER
         if (into.payloadLen < 0 || HEADER + into.payloadLen > len) return false
         return true

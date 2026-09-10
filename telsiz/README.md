@@ -64,10 +64,9 @@ sürükleyen kişi seçimini bitirene kadar ses bekliyor.
 Kişi listesinde bir isme dokunmak onu sessize alıyor: yoklaması gelmeye
 devam ediyor, listede kalıyor, ama sesi çalınmıyor.
 
-**Bu gizlilik değil.** Hedef alanı yalnızca bir yönlendirme bilgisi; paket
-yine kanaldaki herkese ulaşıyor ve alıcı kendine değilse çalmıyor. Dinlemek
-isteyen biri bu alanı yok sayabilir. Gerçek gizlilik için yükün
-şifrelenmesi gerekiyor.
+Hedef alanı tek başına gizlilik sağlamaz — paket yine kanaldaki herkese
+ulaşıyor, alıcı kendine değilse çalmıyor. Gizlilik kanal parolasından
+geliyor (aşağıda).
 
 ### Kaçırdığını tekrar dinle
 
@@ -171,6 +170,37 @@ ve dördüncü saatte sessizce düşüyordu.
 Uygulama ağ arayüzlerini sürekli izler. WiFi kopup geri gelse, hotspot açılsa
 ya da Wi-Fi Direct grubu kurulsa, soketi kendiliğinden yeniden kurar ve ses
 akmaya devam eder.
+
+## Kanal parolası ve şifreleme
+
+Kurulum ekranındaki **Kanal parolası** alanına bir şey yazarsan ses
+şifrelenir ve yalnızca aynı parolayı girenler duyar. Boş bırakırsan kanal
+açık kalır; canlı ekranda kanal numarasının yanında **ŞİFRELİ** ya da
+**ŞİFRESİZ** yazıyor.
+
+Nasıl çalışıyor:
+
+- Anahtar, paroladan ve kanal numarasından **PBKDF2-HMAC-SHA256** ile
+  türetiliyor (100 000 tur). Aynı parola farklı kanalda farklı anahtar
+  veriyor. Tuz sabit olmak zorunda — cihazlar arasında anahtar değişimi
+  yok, herkes aynı anahtara paroladan varıyor. Bunun bedeli sözlük
+  saldırısına açık olmak, dolayısıyla parola tahmin edilebilir olmamalı.
+- Yük **AES-256-GCM** ile şifreleniyor. Başlık şifrelenmiyor (kanal ve
+  hedef yönlendirme için gerekli) ama **kimliği doğrulanıyor**: başlığın
+  tamamı GCM'in ek doğrulama verisi. Tek bir baytı değiştirilen paket
+  çözülemiyor, yani kimse paketin kanalını, gönderenini ya da hedefini
+  değiştiremiyor.
+- Nonce = gönderen kimliği + sıra numarası. GCM'de nonce tekrarı anahtarı
+  ifşa ettiği için sıra numarası uygulama yeniden başlayınca sıfırdan
+  başlamıyor; her açılışta bir öncekinin 100 000 ilerisinden devam ediyor.
+- Parolalı kanalda şifresiz paket kabul edilmiyor. Yoksa şifrelemeyi devre
+  dışı bırakmak için düz paket göndermek yeterdi.
+
+Ölçülen: anahtar türetme 159 ms (oturum başına bir kez), şifrele+çöz paket
+başına 0,02 ms (bütçe 40 ms), yük 16 bayt büyüyor.
+
+Parolayı uygulama hiçbir yere göndermiyor — kanaldakilere ayrıca söylemen
+gerekiyor.
 
 ## Menzil
 

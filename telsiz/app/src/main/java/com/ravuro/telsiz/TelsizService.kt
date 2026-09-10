@@ -75,6 +75,7 @@ class TelsizService : Service() {
     private var direct: WifiDirect? = null
     private var keyPtt: KeyPtt? = null
     private var focusRequest: AudioFocusRequest? = null
+    private var crypto: ChannelCrypto? = null
 
     private val peers = ConcurrentHashMap<Long, Peer>()
     /** Sesi çalınmayan kişiler. Yoklamaları geliyor, listede kalıyorlar. */
@@ -138,6 +139,11 @@ class TelsizService : Service() {
 
     private val txBuf = ByteArray(Packet.MAX)
     private val parsed = Packet.Parsed()
+    /** Çözülen yük buraya açılıyor; onPacket zaten tek seferde çalışıyor. */
+    private val plainBuf = ByteArray(Packet.MAX)
+
+    /** Kanal parolalı mı? */
+    val encrypted: Boolean get() = crypto != null
 
     override fun onBind(intent: Intent?): IBinder = binder
 
@@ -162,6 +168,11 @@ class TelsizService : Service() {
         deviceId = prefs.deviceId
         channel = prefs.channel.coerceIn(1, 999)
         nick = prefs.nick.ifBlank { "Telsiz-" + (deviceId and 0xFFF).toString(16) }
+
+        // Anahtar türetme kasıtlı olarak yavaş; oturum başına bir kez.
+        crypto = ChannelCrypto.derive(prefs.passphrase, channel)
+        // Sıra numarası sıfırdan başlamıyor: şifrelemede nonce buna bağlı.
+        seq = prefs.nextSeqBase()
 
         if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
             != android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -428,10 +439,23 @@ class TelsizService : Service() {
         index: Int = 0
     ) {
         synchronized(txBuf) {
-            val total = Packet.build(
-                txBuf, type, channel, deviceId, seq++, payload, len, predictor, index,
-                if (type == Packet.TYPE_AUDIO) currentTarget else 0L
-            )
+            val s = seq++
+            val target = if (type == Packet.TYPE_AUDIO) currentTarget else 0L
+            val c = crypto
+            val total = if (c == null) {
+                Packet.build(txBuf, type, channel, deviceId, s, payload, len, predictor, index, target)
+            } else {
+                // Başlık önce yazılıyor: şifrelemenin ek doğrulama verisi o.
+                Packet.buildHeader(
+                    txBuf, type, channel, deviceId, s,
+                    len + ChannelCrypto.TAG_BYTES,
+                    predictor, index, target, Packet.FLAG_ENCRYPTED
+                )
+                val n = c.seal(
+                    txBuf, Packet.HEADER, payload, len, deviceId, s, txBuf, Packet.HEADER
+                )
+                Packet.HEADER + n
+            }
             lan?.send(txBuf, total)
             relay?.send(txBuf, total)
         }
@@ -462,6 +486,28 @@ class TelsizService : Service() {
         // karşı tarafa iki kez düşer, o da alıcıda eleniyor.
         forward(buf, len, from)
 
+        // Şifre çözme. Yanlış paroladan gelen ya da kurcalanmış paket
+        // burada sessizce düşüyor.
+        val c = crypto
+        var data = buf
+        var off = parsed.payloadOff
+        var len2 = parsed.payloadLen
+        if (parsed.encrypted) {
+            if (c == null) return          // parolamız yok, çözemeyiz
+            val n = c.open(
+                buf, Packet.HEADER, buf, parsed.payloadOff, parsed.payloadLen,
+                parsed.senderId, parsed.seq, plainBuf
+            )
+            if (n < 0) return
+            data = plainBuf
+            off = 0
+            len2 = n
+        } else if (c != null) {
+            // Parolalı kanalda şifresiz paket kabul edilmiyor: yoksa
+            // şifrelemeyi devre dışı bırakmak için düz paket göndermek yeterdi.
+            return
+        }
+
         val now = System.currentTimeMillis()
         when (parsed.type) {
             Packet.TYPE_AUDIO -> {
@@ -471,13 +517,13 @@ class TelsizService : Service() {
                 }
                 if (!muted.contains(parsed.senderId)) {
                     engine?.enqueue(
-                        parsed.senderId, buf, parsed.payloadOff, parsed.payloadLen,
+                        parsed.senderId, data, off, len2,
                         parsed.predictor, parsed.index
                     )
                 }
             }
             Packet.TYPE_BEEP -> {
-                val kind = if (parsed.payloadLen > 0) buf[parsed.payloadOff] else Beep.START
+                val kind = if (len2 > 0) data[off] else Beep.START
                 val p = peers.getOrPut(parsed.senderId) { Peer(parsed.senderId, "?") }
                 p.lastSeen = now
                 // Başlangıç bipi konuşmanın habercisi; bitiş bipi değil.
@@ -487,7 +533,7 @@ class TelsizService : Service() {
                 }
             }
             Packet.TYPE_PRESENCE -> {
-                val name = String(buf, parsed.payloadOff, parsed.payloadLen, Charsets.UTF_8)
+                val name = String(data, off, len2, Charsets.UTF_8)
                 val p = peers.getOrPut(parsed.senderId) { Peer(parsed.senderId, name) }
                 p.nick = name
                 p.lastSeen = now
