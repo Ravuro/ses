@@ -55,6 +55,7 @@ class TelsizService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var presenceThread: Thread? = null
     private var direct: WifiDirect? = null
+    private var keyPtt: KeyPtt? = null
 
     private val peers = ConcurrentHashMap<Long, Peer>()
     private val windows = ConcurrentHashMap<Long, SeqWindow>()
@@ -99,6 +100,9 @@ class TelsizService : Service() {
     val relayConnected: Boolean get() = relay?.connected == true
     /** Röleye gidiş-dönüş süresi; ölçüm yoksa -1. */
     val relayRttMs: Int get() = (relay as? HttpRelayTransport)?.lastRttMs ?: -1
+
+    /** Ekran kapalıyken ses tuşu dinlenebiliyor mu? */
+    val keyPttReady: Boolean get() = keyPtt?.available == true
     val transmitting: Boolean get() = engine?.transmitting == true
 
     private val txBuf = ByteArray(Packet.MAX)
@@ -176,6 +180,11 @@ class TelsizService : Service() {
             null
         }
 
+        // Ekran kapalıyken ses tuşunu duyabilmek için medya oturumu.
+        if (prefs.volumePtt) {
+            keyPtt = KeyPtt(this, { startTx() }, { stopTx() }).also { it.start() }
+        }
+
         presenceThread = Thread({ presenceLoop() }, "telsiz-presence")
             .apply { isDaemon = true; start() }
 
@@ -206,6 +215,8 @@ class TelsizService : Service() {
         isRunning = false
         presenceThread?.interrupt()
         presenceThread = null
+        keyPtt?.stop()
+        keyPtt = null
         engine?.stop()
         engine = null
         direct?.stop()

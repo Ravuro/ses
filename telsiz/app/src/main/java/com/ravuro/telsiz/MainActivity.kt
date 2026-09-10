@@ -553,7 +553,7 @@ class MainActivity : Activity() {
             textSize = 15f
             typeface = Fonts.ui(context)
         })
-        volText.addView(body("Ses yükseltme tuşunu basılı tut", 12f, DIM).apply {
+        volText.addView(body("Ses yükseltme tuşunu basılı tut —\nekran kapalıyken de", 12f, DIM).apply {
             setPadding(0, dp(3), 0, 0)
         })
         volCard.addView(volText, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -806,10 +806,10 @@ class MainActivity : Activity() {
             else -> txtBanner.text = ""
         }
 
-        txtHint.text = if (prefs.volumePtt) {
-            "Düğmeyi ya da ses yükseltme tuşunu basılı tut"
-        } else {
-            "Konuşmak için düğmeyi basılı tut"
+        txtHint.text = when {
+            !prefs.volumePtt -> "Konuşmak için düğmeyi basılı tut"
+            svc.keyPttReady -> "Düğmeyi ya da ses yükseltme tuşunu basılı tut\nEkran kapalıyken de çalışır"
+            else -> "Düğmeyi ya da ses yükseltme tuşunu basılı tut"
         }
     }
 

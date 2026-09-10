@@ -45,10 +45,23 @@ Android 8.0 ve üstü gerekir.
 
 1. **Adın** ve **Kanal** (1-999) gir. Aynı kanaldakiler birbirini duyar.
 2. **BAŞLAT**'a bas, mikrofon iznini ver.
-4. Büyük düğmeyi **basılı tutarak** konuş, bırakınca dinle. Uygulama
-   ekrandayken **ses yükseltme tuşunu** basılı tutmak da aynı işi yapar —
-   ekrana bakmadan konuşabilmek için. Ses kısma tuşu ses ayarı olarak kalır.
-   İstemezsen ayarlardan kapatabilirsin.
+4. Büyük düğmeyi **basılı tutarak** konuş, bırakınca dinle. **Ses yükseltme
+   tuşunu** basılı tutmak da aynı işi yapar — ekran kapalıyken bile. Ses
+   kısma tuşu ses ayarı olarak kalır. İstemezsen ayarlardan kapatabilirsin.
+
+### Ekran kapalıyken ses tuşu
+
+Ekran kapandığında tuş olayları uygulamaya gelmez. Uygulama bunun için bir
+medya oturumu açıp sesi "uzak" olarak bildiriyor; böylece ses tuşları
+oturuma düşüyor (`KeyPtt.kt`).
+
+Sistem bas/bırak değil yalnızca "ses artır" olayı gönderdiği için basılı
+tutma buradan çıkarılıyor: ilk olayda konuşma başlıyor, olaylar kesildikten
+~0.55 sn sonra bitiyor. Yani bıraktıktan sonra kısa bir kuyruk kalıyor.
+Tuş takılı kalırsa mikrofon 60 sn sonra kendiliğinden kapanıyor.
+
+Bu yol cihazdan cihaza değişebilir: başka bir uygulama müzik çalıyorsa ses
+tuşları ona gidebilir. Ekran açıkken çalışan yol bundan etkilenmiyor.
 
 Ekran iki durumlu: kapalıyken ayarlar görünür, açıldığında yerine bağlantı
 durumu ve kanaldakiler gelir.
