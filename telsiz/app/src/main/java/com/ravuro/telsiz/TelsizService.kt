@@ -163,7 +163,10 @@ class TelsizService : Service() {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
             wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "telsiz:session").apply {
                 setReferenceCounted(false)
-                acquire(4 * 60 * 60 * 1000L)
+                // Süre verilmiyor: dördüncü saatte sessizce düşüyordu ve
+                // telsiz hiçbir hata göstermeden susuyordu. Servis
+                // durdurulurken bırakılıyor.
+                acquire()
             }
         } catch (_: Exception) {
         }

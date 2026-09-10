@@ -32,11 +32,23 @@ class LanTransport(
         const val PORT = 47771
         const val GROUP = "239.255.42.99"
         private const val WATCH_MS = 2500L
+        /** Multicast üyeliğini bu aralıkla tazele. */
+        private const val REJOIN_MS = 30_000L
+        /**
+         * Bu kadar süre hiçbir paket gelmezse soket ölmüş sayılır.
+         *
+         * Kendi yoklama paketlerimizi de duyuyoruz (yayın adresine
+         * gönderdiğimiz paket aynı sokete geri düşüyor) ve bunlar 3 saniyede
+         * bir gidiyor. Yani sessizlik "kimse konuşmuyor" değil, "soket artık
+         * dinlemiyor" demek.
+         */
+        private const val DEAD_MS = 90_000L
     }
 
     @Volatile private var running = false
     @Volatile private var socket: MulticastSocket? = null
     private var multicastLock: WifiManager.MulticastLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
     private var rxThread: Thread? = null
     private var watchThread: Thread? = null
 
@@ -51,9 +63,14 @@ class LanTransport(
     @Volatile var rebuilds: Int = 0
         private set
 
+    @Volatile private var lastRxAt = 0L
+    private var lastRejoinAt = 0L
+
     fun start() {
         if (running) return
         running = true
+        lastRxAt = System.currentTimeMillis()
+        lastRejoinAt = lastRxAt
         acquireLock()
         scanInterfaces(force = true)
 
@@ -144,7 +161,43 @@ class LanTransport(
         while (running) {
             try { Thread.sleep(WATCH_MS) } catch (_: InterruptedException) { return }
             if (!running) return
+
+            val now = System.currentTimeMillis()
+
+            // Ekran kapalıyken WiFi güç tasarrufuna geçip multicast üyeliğini
+            // sessizce düşürebiliyor. Adres değişmediği için arayüz taraması
+            // bunu göremez; üyeliği düzenli olarak tazeliyoruz.
+            if (now - lastRejoinAt >= REJOIN_MS) {
+                lastRejoinAt = now
+                socket?.let { rejoin(it) }
+            }
+
+            // Kendi yoklamamızı bile duymuyorsak soket ölmüştür: yeniden kur.
+            if (now - lastRxAt >= DEAD_MS) {
+                lastRxAt = now
+                rebuilds++
+                openSocket()
+            }
+
             scanInterfaces(force = false)
+        }
+    }
+
+    private fun rejoin(s: java.net.MulticastSocket) {
+        val group = try { InetAddress.getByName(GROUP) } catch (_: Exception) { return }
+        try {
+            val ifs = NetworkInterface.getNetworkInterfaces()
+            while (ifs.hasMoreElements()) {
+                val ni = ifs.nextElement()
+                try {
+                    if (!ni.isUp || ni.isLoopback || !ni.supportsMulticast()) continue
+                    // Zaten üyeysek istisna atar ve yutulur; üyelik düşmüşse
+                    // burada geri kazanılır.
+                    s.joinGroup(InetSocketAddress(group, PORT), ni)
+                } catch (_: Exception) {
+                }
+            }
+        } catch (_: Exception) {
         }
     }
 
@@ -208,6 +261,7 @@ class LanTransport(
             try {
                 dp.length = buf.size
                 s.receive(dp)
+                lastRxAt = System.currentTimeMillis()
                 onPacket(buf, dp.length)
             } catch (_: java.net.SocketTimeoutException) {
                 // running bayrağını yeniden kontrol etmek için normal
@@ -230,6 +284,16 @@ class LanTransport(
                 setReferenceCounted(false)
                 acquire()
             }
+            // Ekran kapalıyken WiFi radyosu güç tasarrufuna geçiyor ve
+            // yayın/multicast paketleri düşüyor. Yüksek başarım kipi bunu
+            // engelliyor. Yerini alan LOW_LATENCY kipi yalnızca uygulama
+            // ön plandayken çalıştığı için burada işe yaramıyor.
+            @Suppress("DEPRECATION")
+            wifiLock = wifi.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "telsiz-wifi")
+                .apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
         } catch (_: Exception) {
         }
     }
@@ -237,5 +301,7 @@ class LanTransport(
     private fun releaseLock() {
         try { multicastLock?.release() } catch (_: Exception) {}
         multicastLock = null
+        try { wifiLock?.release() } catch (_: Exception) {}
+        wifiLock = null
     }
 }

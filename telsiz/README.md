@@ -88,6 +88,25 @@ durumu ve kanaldakiler gelir.
 Uygulama arka plandayken ve ekran kapalıyken de dinlemeye devam eder
 (bildirimden kapatabilirsin).
 
+### Uzun sessizlikte uykuya geçme
+
+Ekran kapalıyken WiFi radyosu güç tasarrufuna geçiyor ve yayın/multicast
+paketleri düşüyor; üstelik bunu IP adresi değişmeden yapıyor, dolayısıyla
+arayüz taraması göremiyor. Buna karşı üç önlem var:
+
+- **WiFi kilidi** (`WIFI_MODE_FULL_HIGH_PERF`) radyoyu uyanık tutuyor.
+  Yerini alan `LOW_LATENCY` kipi yalnızca uygulama ön plandayken çalıştığı
+  için burada işe yaramıyor.
+- **Multicast üyeliği 30 saniyede bir tazeleniyor.**
+- **Ölü soket onarımı:** 90 saniye boyunca hiçbir paket gelmezse soket
+  yeniden kuruluyor. Bu güvenilir bir ölçüt, çünkü kendi yoklama
+  paketlerimizi de duyuyoruz — yayın adresine gönderdiğimiz paket aynı
+  sokete geri düşüyor ve bunlar 3 saniyede bir gidiyor. Yani sessizlik
+  "kimse konuşmuyor" değil, "soket artık dinlemiyor" demek.
+
+Uyanık kalma kilidi de artık süresiz alınıyor; önceden dört saatlik verilmiş
+ve dördüncü saatte sessizce düşüyordu.
+
 ### Ağ kopunca
 
 Uygulama ağ arayüzlerini sürekli izler. WiFi kopup geri gelse, hotspot açılsa
