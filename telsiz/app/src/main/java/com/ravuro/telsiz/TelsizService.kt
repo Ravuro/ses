@@ -33,6 +33,13 @@ class TelsizService : Service() {
         private const val PRESENCE_MS = 3000L
         private const val PEER_TTL_MS = 12000L
 
+        /**
+         * Röleden bu kadar süredir cevap yoksa bağlantı ölmüş sayılıyor.
+         * Uzun bekleyen sorgu en geç 15 saniyede bir dönüyor, yani beş
+         * turdan fazlası kaçmışsa soket gerçekten donmuş demektir.
+         */
+        private const val RELAY_STALE_MS = 75_000L
+
         @Volatile var isRunning = false
 
         /**
@@ -48,6 +55,26 @@ class TelsizService : Service() {
 
         fun keyUp() {
             current?.stopTx()
+        }
+
+        /**
+         * Nabız alarmının giriş kapısı. Servis ayaktaysa bileşenleri
+         * denetletiyor; süreç öldürülmüşse ve kullanıcı telsizi kapatmadıysa
+         * yeniden başlatıyor.
+         */
+        fun poke(ctx: Context) {
+            val svc = current
+            if (svc != null) {
+                svc.heartbeat()
+                return
+            }
+            if (!Prefs(ctx).sessionWanted) return
+            try {
+                ctx.startForegroundService(Intent(ctx, TelsizService::class.java))
+            } catch (_: Exception) {
+                // Arka planda servis başlatma kısıtlıysa yapacak bir şey yok;
+                // bir sonraki nabızda yeniden denenecek.
+            }
         }
     }
 
@@ -86,6 +113,12 @@ class TelsizService : Service() {
     private var channel: Int = 1
     private var nick: String = ""
     private var seq: Int = 0
+
+    /** Tanı için: oturum ne zaman başladı, nabız kaç kez ne yaptı. */
+    @Volatile var startedAt: Long = 0
+    @Volatile var beats: Int = 0
+    @Volatile var repairs: Int = 0
+    @Volatile var lastRepair: String = "-"
 
     @Volatile var relayStatus: String = "kapalı"
         private set
@@ -149,6 +182,9 @@ class TelsizService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            // Kullanıcının kendi kararı: nabız bunu geri getirmesin.
+            Prefs(this).sessionWanted = false
+            Watchdog.disarm(this)
             stopSelf()
             return START_NOT_STICKY
         }
@@ -240,6 +276,11 @@ class TelsizService : Service() {
         isRunning = true
         current = this
         startError = null
+        startedAt = System.currentTimeMillis()
+        // Kullanıcı DURDUR'a basana kadar telsiz açık sayılıyor: süreç
+        // öldürülürse nabız buna bakıp geri getiriyor.
+        prefs.sessionWanted = true
+        Watchdog.arm(this)
         updateNotification()
     }
 
@@ -551,6 +592,91 @@ class TelsizService : Service() {
             Source.RELAY -> lan?.send(buf, len)
         }
         bridged++
+    }
+
+    // ---- nabız ----
+    //
+    // Dakikada bir alarm çalıyor ve buraya geliyor. Buradaki her onarım
+    // gerçek bir arızanın karşılığı; hiçbiri "olur da lazım olur" diye
+    // yazılmadı.
+
+    fun heartbeat() {
+        beats++
+        val fixes = StringBuilder()
+
+        // Uyanıklık kilidi: dördüncü saatte kendiliğinden düştüğü görüldü.
+        try {
+            if (wakeLock?.isHeld != true) {
+                wakeLock?.acquire()
+                fixes.append("kilit ")
+            }
+        } catch (_: Exception) {
+        }
+
+        // Ses motoru: mikrofonu başkası aldığında döngüler ölüyor.
+        val eng = engine
+        if (eng != null && !eng.alive) {
+            try {
+                eng.stop()
+                if (eng.start()) fixes.append("ses ") else fixes.append("ses(olmadı) ")
+            } catch (_: Exception) {
+            }
+        }
+
+        // Yerel ağ: kendi bekçisi var ama iş parçacığı ölmüşse o da duruyor.
+        val l = lan
+        if (l != null) {
+            if (!l.alive) {
+                try { l.stop(); l.start(); fixes.append("yerel ") } catch (_: Exception) {}
+            } else {
+                l.kick()
+            }
+        }
+
+        // Röle: asılı kalmış soketi ancak dışarıdan kapatmak kurtarıyor.
+        val r = relay
+        if (r != null) {
+            val stale = r.lastRxAt != 0L &&
+                System.currentTimeMillis() - r.lastRxAt > RELAY_STALE_MS
+            val dead = when (r) {
+                is HttpRelayTransport -> !r.alive
+                is RelayTransport -> !r.alive
+                else -> false
+            }
+            if (stale || dead) {
+                try { r.restart(); fixes.append(if (dead) "röle(ölü) " else "röle(donmuş) ") }
+                catch (_: Exception) {}
+            }
+        }
+
+        // Yoklama: bu ölürse listede kimse görünmüyor ve karşı taraf da
+        // bizi göremiyor.
+        if (presenceThread?.isAlive != true) {
+            presenceThread = Thread({ presenceLoop() }, "telsiz-presence")
+                .apply { isDaemon = true; start() }
+            fixes.append("yoklama ")
+        }
+
+        if (fixes.isNotEmpty()) {
+            repairs++
+            lastRepair = fixes.toString().trim()
+            updateNotification()
+        }
+    }
+
+    /** Tanı ekranının metni. Tahmin değil, ölçüm. */
+    fun diagnostics(): String = buildString {
+        val up = if (startedAt == 0L) 0 else (System.currentTimeMillis() - startedAt) / 1000
+        append("açık ").append(up / 60).append(" dk ").append(up % 60).append(" sn")
+        append(" · nabız ").append(beats)
+        append(" · onarım ").append(repairs)
+        if (lastRepair != "-") append("\nson onarım: ").append(lastRepair)
+        append("\nses ").append(if (engine?.alive == true) "çalışıyor" else "DURMUŞ")
+        val l = lan
+        append(" · yerel ").append(if (l?.alive == true) "açık" else "DURMUŞ")
+        if (l != null) append(" (").append(l.localIp).append(", kurulum ").append(l.rebuilds).append(")")
+        append("\n").append(relay?.diag() ?: "röle ayarlı değil")
+        append("\nkanaldaki kişi ").append(peers.size)
     }
 
     private fun presenceLoop() {

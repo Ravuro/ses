@@ -109,6 +109,14 @@ class AudioEngine(private val onFrame: (ByteArray, Int, Int, Int) -> Unit) {
     @Volatile var lastError: String? = null
         private set
 
+    /**
+     * Ses iş parçacıkları hâlâ dönüyor mu. Mikrofon başka bir uygulamaya
+     * kaptırıldığında ya da beklenmedik bir hata düştüğünde döngüler
+     * ölüyor; nabız buna bakıp motoru yeniden kuruyor.
+     */
+    val alive: Boolean
+        get() = running && txThread?.isAlive == true && rxThread?.isAlive == true
+
     @SuppressLint("MissingPermission")
     fun start(): Boolean {
         if (running) return true

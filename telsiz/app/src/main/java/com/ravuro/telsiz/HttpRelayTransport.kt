@@ -29,6 +29,12 @@ class HttpRelayTransport(
         const val MAX_BATCH = 8192
         const val MAX_QUEUE = 50       // ~2 sn: bunun ötesi zaten geçersiz
         const val MAX_RESPONSE = 262144
+
+        /** POST'un uzun bekleme hakkı yok: gönderim ya hızlı olur ya olmaz. */
+        const val POST_READ_MS = 10000
+
+        /** Sunucu cevabı 15 sn tutabiliyor; GET'in okuma payı ondan uzun. */
+        const val POLL_READ_MS = 30000
     }
 
     private val base = baseUrl.trim().trimEnd('/')
@@ -50,21 +56,106 @@ class HttpRelayTransport(
     @Volatile var lastRttMs: Int = -1
         private set
 
+    @Volatile override var lastRxAt = 0L
+        private set
+    @Volatile private var lastTxAt = 0L
+    @Volatile private var polls = 0
+    @Volatile private var pollFails = 0
+    @Volatile private var postFails = 0
+    @Volatile private var revives = 0
+    @Volatile private var lastFault: String = "-"
+
+    /**
+     * Kaçıncı kuruluşta olduğumuz. Asılı bir soket okuması [Thread.interrupt]
+     * ile kesilmiyor; eski iş parçacığı zaman aşımına kadar yaşıyor. Kuşak
+     * numarası eskiyi kendiliğinden emekliye ayırıyor, yoksa iki dinleyici
+     * aynı anda sorgulamaya başlıyor.
+     */
+    @Volatile private var generation = 0
+
+    /** Açık duran uzun sorgu; kesmenin tek yolu soketi kapatmak. */
+    @Volatile private var pollConn: HttpURLConnection? = null
+
     override fun start() {
         if (running) return
         running = true
+        lastRxAt = 0L
         setStatus("bağlanıyor")
-        sendThread = Thread({ sendLoop() }, "telsiz-http-tx").apply { isDaemon = true; start() }
-        pollThread = Thread({ pollLoop() }, "telsiz-http-rx").apply { isDaemon = true; start() }
+        spawn()
+    }
+
+    private fun spawn() {
+        val g = ++generation
+        sendThread = Thread({ guard("tx") { sendLoop(g) } }, "telsiz-http-tx")
+            .apply { isDaemon = true; start() }
+        pollThread = Thread({ guard("rx") { pollLoop(g) } }, "telsiz-http-rx")
+            .apply { isDaemon = true; start() }
+    }
+
+    /** Bekçi buna bakıp taşıyıcının gerçekten canlı olup olmadığına karar veriyor. */
+    val alive: Boolean
+        get() = sendThread?.isAlive == true && pollThread?.isAlive == true
+
+    /**
+     * Bir iş parçacığı beklenmedik bir şeyle ölürse telsiz hiçbir uyarı
+     * vermeden sağırlaşıyordu: bayrak "bağlı" kalıyor, kimse konuşmuyor
+     * sanılıyor. Ölüm sebebi kaydediliyor ve bekçi tekrar kuruyor.
+     */
+    private fun guard(name: String, body: () -> Unit) {
+        try {
+            body()
+        } catch (t: Throwable) {
+            lastFault = name + ": " + (t.message ?: t.javaClass.simpleName)
+            connected = false
+        }
+    }
+
+    /**
+     * Ölmüş ya da asılı kalmış bağlantıyı sıfırdan kurar. Asılı okumayı
+     * kesmenin tek yolu iş parçacığını bölmek: soket kapanınca okuma
+     * hatayla düşüyor.
+     */
+    override fun restart() {
+        if (!running) return
+        revives++
+        connected = false
+        setStatus("yeniden kuruluyor")
+        cut()
+        synchronized(outLock) { outbox.clear() }
+        spawn()
+    }
+
+    /** Kuşağı ilerletip açık soketi kapatır: asılı okuma anında düşer. */
+    private fun cut() {
+        generation++
+        try { pollConn?.disconnect() } catch (_: Exception) {}
+        pollConn = null
+        sendThread?.interrupt()
+        pollThread?.interrupt()
+        sendThread = null
+        pollThread = null
+    }
+
+    override fun diag() = buildString {
+        append("röle ").append(status)
+        append(" · sorgu ").append(polls)
+        append(" · hata ").append(pollFails).append("/").append(postFails)
+        append(" · diriltme ").append(revives)
+        append(" · gecikme ").append(if (lastRttMs < 0) "-" else lastRttMs.toString() + "ms")
+        append("\nson cevap ").append(agoText(lastRxAt))
+        append(" · son gönderim ").append(agoText(lastTxAt))
+        if (lastFault != "-") append("\nson arıza: ").append(lastFault)
+    }
+
+    private fun agoText(at: Long): String {
+        if (at == 0L) return "hiç"
+        return ((System.currentTimeMillis() - at) / 1000).toString() + " sn önce"
     }
 
     override fun stop() {
         running = false
         connected = false
-        sendThread?.interrupt()
-        pollThread?.interrupt()
-        sendThread = null
-        pollThread = null
+        cut()
         synchronized(outLock) { outbox.clear() }
         setStatus("kapalı")
     }
@@ -81,17 +172,20 @@ class HttpRelayTransport(
 
     // ---- gönderim ----
 
-    private fun sendLoop() {
-        while (running) {
+    private fun sendLoop(gen: Int) {
+        while (running && gen == generation) {
             try { Thread.sleep(BATCH_MS) } catch (_: InterruptedException) { return }
-            if (!running) return
+            if (!running || gen != generation) return
 
             val body = drain() ?: continue
             try {
                 val t0 = System.currentTimeMillis()
                 post(body)
                 lastRttMs = (System.currentTimeMillis() - t0).toInt()
+                lastTxAt = System.currentTimeMillis()
             } catch (e: Exception) {
+                postFails++
+                lastFault = "gönderim: " + shortError(e)
                 connected = false
                 setStatus(shortError(e))
             }
@@ -113,7 +207,7 @@ class HttpRelayTransport(
     }
 
     private fun post(body: ByteArray) {
-        val c = open(url(null), "POST")
+        val c = open(url(null), "POST", POST_READ_MS)
         c.doOutput = true
         c.setFixedLengthStreamingMode(body.size)
         c.setRequestProperty("Content-Type", "application/octet-stream")
@@ -128,13 +222,15 @@ class HttpRelayTransport(
 
     // ---- dinleme ----
 
-    private fun pollLoop() {
+    private fun pollLoop(gen: Int) {
         var cursor = -1L
         var backoff = 500L
-        while (running) {
+        while (running && gen == generation) {
             try {
-                val resp = get(cursor)
-                if (!running) return
+                polls++
+                val resp = get(cursor, gen)
+                if (!running || gen != generation) return
+                lastRxAt = System.currentTimeMillis()
                 connected = true
                 setStatus("bağlı")
                 backoff = 500L
@@ -144,7 +240,9 @@ class HttpRelayTransport(
                     deliver(resp, 8)
                 }
             } catch (e: Exception) {
-                if (!running) return
+                if (!running || gen != generation) return
+                pollFails++
+                lastFault = "dinleme: " + shortError(e)
                 connected = false
                 setStatus(shortError(e))
                 if (!sleep(backoff)) return
@@ -153,13 +251,16 @@ class HttpRelayTransport(
         }
     }
 
-    private fun get(cursor: Long): ByteArray {
-        val c = open(url(cursor), "GET")
+    private fun get(cursor: Long, gen: Int): ByteArray {
+        val c = open(url(cursor), "GET", POLL_READ_MS)
+        // Bekçi bu soketi kapatarak asılı okumayı kesebilsin.
+        pollConn = c
         try {
             val code = c.responseCode
             if (code !in 200..299) throw java.io.IOException("sunucu $code")
             return readAll(c.inputStream)
         } finally {
+            if (gen == generation) pollConn = null
             c.disconnect()
         }
     }
@@ -186,12 +287,11 @@ class HttpRelayTransport(
         return sb.toString()
     }
 
-    private fun open(u: String, method: String): HttpURLConnection {
+    private fun open(u: String, method: String, readMs: Int): HttpURLConnection {
         val c = URL(u).openConnection() as HttpURLConnection
         c.requestMethod = method
         c.connectTimeout = 10000
-        // Sunucu cevabı 15 sn tutabiliyor; okuma zaman aşımı ondan uzun olmalı.
-        c.readTimeout = 30000
+        c.readTimeout = readMs
         c.useCaches = false
         c.instanceFollowRedirects = true
         c.setRequestProperty("Accept-Encoding", "identity")

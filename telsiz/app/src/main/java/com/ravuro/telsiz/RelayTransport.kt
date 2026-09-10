@@ -23,6 +23,11 @@ class RelayTransport(
     @Volatile override var status: String = "kapalı"
         private set
 
+    @Volatile override var lastRxAt = 0L
+        private set
+    @Volatile private var revives = 0
+    @Volatile private var drops = 0
+
     override fun start() {
         if (running) return
         running = true
@@ -52,7 +57,10 @@ class RelayTransport(
         var backoff = 1000L
         while (running) {
             val client = WebSocketClient(url, object : WebSocketClient.Listener {
-                override fun onBinary(data: ByteArray) = onPacket(data, data.size)
+                override fun onBinary(data: ByteArray) {
+                    lastRxAt = System.currentTimeMillis()
+                    onPacket(data, data.size)
+                }
             })
             try {
                 setStatus("bağlanıyor")
@@ -61,7 +69,9 @@ class RelayTransport(
                 connected = true
                 backoff = 1000L
                 setStatus("bağlı")
+                lastRxAt = System.currentTimeMillis()
                 client.readLoop()          // kopana kadar burada bekler
+                drops++
                 setStatus("koptu")
             } catch (e: Exception) {
                 setStatus(shortError(e))
@@ -75,6 +85,33 @@ class RelayTransport(
             backoff = (backoff * 2).coerceAtMost(15000L)
         }
         setStatus("kapalı")
+    }
+
+    /**
+     * Ölmüş bağlantıyı zorla kapatır; [supervise] kopmayı görüp yeniden
+     * bağlanır. Bekçi, taşıyıcı canlı görünüp veri gelmediğinde çağırıyor.
+     */
+    override fun restart() {
+        if (!running) return
+        revives++
+        connected = false
+        try { ws?.close() } catch (_: Exception) {}
+        ws = null
+        if (thread?.isAlive != true) {
+            thread = Thread({ supervise() }, "telsiz-relay").apply { isDaemon = true; start() }
+        }
+    }
+
+    val alive: Boolean get() = thread?.isAlive == true
+
+    override fun diag() = buildString {
+        append("röle ").append(status)
+        append(" · kopma ").append(drops)
+        append(" · diriltme ").append(revives)
+        append("\nson cevap ").append(
+            if (lastRxAt == 0L) "hiç"
+            else ((System.currentTimeMillis() - lastRxAt) / 1000).toString() + " sn önce"
+        )
     }
 
     /** Beklerken durdurma isteğine hızlı cevap verebilmek için parçalı uyku. */

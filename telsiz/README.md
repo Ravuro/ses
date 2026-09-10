@@ -147,6 +147,47 @@ durumu ve kanaldakiler gelir.
 Uygulama arka plandayken ve ekran kapalıyken de dinlemeye devam eder
 (bildirimden kapatabilirsin).
 
+### Nabız: arka planda susmaya karşı
+
+Uygulama arka planda kendiliğinden susuyordu. Tek bir sebep yok, üç ayrı
+şey aynı belirtiyi veriyor ve üçü de "her şey açık görünüyor ama kimsenin
+sesi gitmiyor" hâlini üretiyor:
+
+| Sebep | Ne oluyor | Karşılığı |
+|---|---|---|
+| **Doze** | Telefon kımıldamadan durunca sistem uykuya geçiyor, ağ kısılıyor | Uykuda da çalan alarm (`setExactAndAllowWhileIdle`) |
+| **Ölmüş soket** | Mobil veride soket kapanmıyor, donuyor; bayrak "bağlı" diyor, ses gelmiyor | Son cevap 75 sn'den eskiyse bağlantı zorla kapatılıp yeniden kuruluyor |
+| **Süreç öldürülmesi** | Xiaomi/Oppo arayüzleri uygulamayı topluca kapatıyor | Manifeste yazılı alıcı, süreç ölse de alarmı alıp telsizi geri getiriyor |
+
+Nabız dakikada bir çalıyor ve şunlara bakıyor: uyanıklık kilidi düşmüş mü,
+ses iş parçacıkları dönüyor mu, yerel ağ ayakta mı, röleden ne zamandır
+cevap yok, yoklama çalışıyor mu. Bozuk olanı yerinde onarıyor.
+
+En sinsi arıza ölmüş soket, çünkü hiçbir hata vermiyor. Asılı bir okumayı
+`Thread.interrupt()` kesmiyor; tek yol soketi dışarıdan kapatmak. Ölçüm
+(JVM'de, asılan sahte sunucuya karşı): asılı bağlantı **50 ms** içinde
+kurtuluyor, eski dinleyici iş parçacığı **anında** ölüyor — yani geride
+sorgulamaya devam eden ikinci bir dinleyici kalmıyor.
+
+Doze'da sistem bu alarmları uygulama başına ~9 dakikada bire kısıyor.
+Dakikada bir istiyoruz, en kötü ihtimalle dokuz dakikada bir toparlanma
+oluyor.
+
+**Nabzın çözemediği tek durum:** telefonu "son uygulamalar"dan kaydırıp
+atmak ya da Ayarlar'dan **Zorla durdur** demek. Android bunu "kullanıcı
+istemiyor" sayıyor, alarmları da siliyor ve uygulamayı elle açılana kadar
+durdurulmuş halde tutuyor. Bunu hiçbir kod aşamaz.
+
+### Tanı ekranı
+
+Canlı ekranın altındaki **TANI** kartı tahmin etmeyi bırakmak için:
+çalışma süresi, kaç nabız attığı, ne onardığı, ses ve yerel ağın durumu,
+röleden son cevabın kaç saniye önce geldiği, hata sayaçları ve son arıza.
+**KOPYALA**'ya (ya da metne uzun basınca) panoya alınıyor.
+
+"Sanırım çalışmıyor" ile "röleden 96 saniyedir cevap yok" arasındaki fark,
+sorunu bir denemede çözmekle üç denemede çözmek arasındaki fark.
+
 ### Uzun sessizlikte uykuya geçme
 
 Ekran kapalıyken WiFi radyosu güç tasarrufuna geçiyor ve yayın/multicast

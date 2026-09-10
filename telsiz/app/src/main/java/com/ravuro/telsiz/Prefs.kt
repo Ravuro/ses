@@ -62,6 +62,17 @@ class Prefs(ctx: Context) {
         return base
     }
 
+    /**
+     * Kullanıcı telsizi açık bırakmak istiyor mu.
+     *
+     * Süreç öldürülmekle kullanıcının DURDUR'a basması dışarıdan aynı
+     * görünüyor; ayırt edecek tek şey bu bayrak. Nabız buna bakıp
+     * öldürülmüş telsizi geri getiriyor, kapatılmışı rahat bırakıyor.
+     */
+    var sessionWanted: Boolean
+        get() = sp.getBoolean("wanted", false)
+        set(v) = sp.edit().putBoolean("wanted", v).apply()
+
     /** Konuşmanın başında ve sonunda karşı tarafta çalan telsiz bipi. */
     var beep: Boolean
         get() = sp.getBoolean("beep", true)

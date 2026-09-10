@@ -63,6 +63,10 @@ class LanTransport(
     @Volatile var rebuilds: Int = 0
         private set
 
+    /** Yerel ağ iş parçacıkları ayakta mı; nabız buna bakıyor. */
+    val alive: Boolean
+        get() = running && rxThread?.isAlive == true && watchThread?.isAlive == true
+
     @Volatile private var lastRxAt = 0L
     private var lastRejoinAt = 0L
 

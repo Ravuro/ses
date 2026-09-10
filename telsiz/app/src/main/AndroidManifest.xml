@@ -34,6 +34,19 @@
             android:exported="false" />
 
         <!--
+          Nabiz alicisi. Manifeste yaziliyor cunku surec olduruldukten sonra
+          da alarmi alabilmesi, yani telsizi geri getirebilmesi gerekiyor;
+          calisma aninda kaydedilen bir alici bunu yapamaz.
+        -->
+        <receiver
+            android:name="com.ravuro.telsiz.Watchdog"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.ravuro.telsiz.NABIZ" />
+            </intent-filter>
+        </receiver>
+
+        <!--
           Ses tuşunu sistem seviyesinde yakalar. Bazı üretici arayüzleri
           medya oturumu yolunu çalıştırmadığı için gerekiyor; kullanıcı
           Ayarlar'dan elle açmadıkça devreye girmez.

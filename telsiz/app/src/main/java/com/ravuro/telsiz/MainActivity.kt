@@ -112,6 +112,8 @@ class MainActivity : Activity() {
     private lateinit var peersCount: TextView
     private lateinit var peersList: LinearLayout
     private lateinit var netCard: View
+    private lateinit var diagCard: View
+    private lateinit var txtDiag: TextView
     private lateinit var txtDirect: TextView
     private lateinit var btnDirect: Button
     private lateinit var btnWifiSettings: Button
@@ -320,6 +322,7 @@ class MainActivity : Activity() {
         ).apply { topMargin = dp(9) })
         content.addView(buildSetup())
         content.addView(buildNetCard(), marginTop(12))
+        content.addView(buildDiagCard(), marginTop(12))
 
         btnPower = Button(this).apply {
             textSize = 15f
@@ -1058,6 +1061,55 @@ class MainActivity : Activity() {
         edtChannel.setSelection(edtChannel.text.length)
     }
 
+    /**
+     * Tanı. "Sanırım çalışmıyor" ile "şu an röleden 96 saniyedir cevap yok"
+     * arasındaki fark, sorunu bir denemede çözmekle üç denemede çözmek
+     * arasındaki fark. Metin uzun basınca panoya kopyalanıyor.
+     */
+    private fun buildDiagCard(): View {
+        val c = card()
+        val head = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        head.addView(caption("TANI"), LinearLayout.LayoutParams(
+            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
+        ))
+        head.addView(TextView(this).apply {
+            text = "KOPYALA"
+            setTextColor(MUTED)
+            textSize = 9f
+            typeface = Fonts.mono(context, bold = true)
+            letterSpacing = 0.12f
+            setPadding(dp(10), dp(4), 0, dp(4))
+            setOnClickListener { copyDiag() }
+        })
+        c.addView(head)
+
+        txtDiag = TextView(this).apply {
+            textSize = 11.5f
+            typeface = Fonts.mono(context)
+            setTextColor(TEXT2)
+            setLineSpacing(dp(3).toFloat(), 1f)
+            setPadding(0, dp(10), 0, 0)
+            setOnLongClickListener { copyDiag(); true }
+        }
+        c.addView(txtDiag)
+        diagCard = c
+        return c
+    }
+
+    private fun copyDiag() {
+        try {
+            getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(
+                android.content.ClipData.newPlainText("Telsiz tanı", txtDiag.text)
+            )
+            toast("Tanı panoya kopyalandı")
+        } catch (_: Exception) {
+            toast("Kopyalanamadı")
+        }
+    }
+
     private fun buildNetCard(): View {
         val c = card()
         c.addView(caption("AĞ"))
@@ -1145,6 +1197,10 @@ class MainActivity : Activity() {
     }
 
     private fun stopSession() {
+        // Nabzın bunu "öldürülmüş" sanıp geri getirmemesi için önce niyeti
+        // yazıyoruz; servis bunu okumadan durabiliyor.
+        prefs.sessionWanted = false
+        Watchdog.disarm(this)
         service?.stopTx()
         unbind()
         stopService(Intent(this, TelsizService::class.java))
@@ -1245,6 +1301,8 @@ class MainActivity : Activity() {
             inviteBtn.text = "DAVET ET · " + prefs.invite
         }
         netCard.visibility = if (running) View.VISIBLE else View.GONE
+        diagCard.visibility = if (running) View.VISIBLE else View.GONE
+        if (running) txtDiag.text = svc?.diagnostics() ?: "başlatılıyor…"
 
         ptt.live = running
         ptt.transmitting = svc?.transmitting == true
