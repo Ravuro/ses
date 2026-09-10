@@ -31,6 +31,15 @@ class Prefs(ctx: Context) {
      */
     val relayUrl: String get() = DEFAULT_RELAY
 
+    /**
+     * Kanalın davet kodu. Kod girildiyse kanal numarası da parola da ondan
+     * türetiliyor; burada yalnızca paylaşmak ve ekranda göstermek için
+     * saklanıyor. Kanal elle seçildiyse boş.
+     */
+    var invite: String
+        get() = sp.getString("invite", "") ?: ""
+        set(v) = sp.edit().putString("invite", v).apply()
+
     /** Kanal parolası. Boşsa ses şifresiz gider. */
     var passphrase: String
         get() = sp.getString("pass", "") ?: ""

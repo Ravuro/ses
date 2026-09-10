@@ -17,7 +17,9 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
@@ -79,6 +81,11 @@ class MainActivity : Activity() {
     private lateinit var edtNick: EditText
     private lateinit var edtChannel: EditText
     private lateinit var edtPass: EditText
+    private lateinit var edtInvite: EditText
+    private lateinit var txtInviteState: TextView
+    private lateinit var btnShare: Button
+    private lateinit var manualCard: View
+    private lateinit var manualLink: TextView
     private lateinit var txtLock: TextView
     private lateinit var volumeToggle: Toggle
     private lateinit var beepToggle: Toggle
@@ -100,6 +107,7 @@ class MainActivity : Activity() {
     private lateinit var powerCard: View
     private lateinit var txtPowerWarn: TextView
     private lateinit var replayBtn: Button
+    private lateinit var inviteBtn: Button
     private lateinit var peersCard: View
     private lateinit var peersCount: TextView
     private lateinit var peersList: LinearLayout
@@ -149,6 +157,11 @@ class MainActivity : Activity() {
         edtNick.setText(prefs.nick)
         edtChannel.setText(prefs.channel.toString())
         edtPass.setText(prefs.passphrase)
+        edtInvite.setText(prefs.invite)
+        // Kodla gelen kanalın numarası da parolası da koddan türüyor: elle
+        // ayar kartını göstermeye gerek yok, karışıklık olur.
+        setManualVisible(prefs.invite.isEmpty())
+        refreshInvite()
     }
 
     override fun onStart() {
@@ -299,6 +312,12 @@ class MainActivity : Activity() {
         content.addView(replayBtn, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, dp(48)
         ).apply { topMargin = dp(10) })
+
+        // Kanalı kurduktan sonra da davet edebilmek gerek: kod burada duruyor.
+        inviteBtn = outlineButton("", TEXT2, LINE2) { shareInvite(prefs.invite) }
+        content.addView(inviteBtn, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(48)
+        ).apply { topMargin = dp(9) })
         content.addView(buildSetup())
         content.addView(buildNetCard(), marginTop(12))
 
@@ -714,7 +733,146 @@ class MainActivity : Activity() {
         return c
     }
 
-    private fun buildSetup(): View {
+    /**
+     * Davet kodu kartı. Kurulumun ilk ve çoğu zaman tek adımı: kodu olan
+     * yazıyor, olmayan bir kanal oluşturup kodu paylaşıyor.
+     */
+    private fun buildInviteCard(): View {
+        val c = card().apply { setPadding(dp(20), dp(18), dp(20), dp(20)) }
+        c.addView(caption("DAVET KODU"))
+
+        edtInvite = EditText(this).apply {
+            hint = "XXXX-XXXX-XXXX-XXXX"
+            setHintTextColor(FAINT)
+            setTextColor(TEXT)
+            textSize = 21f
+            typeface = Fonts.mono(context, bold = true)
+            letterSpacing = 0.06f
+            gravity = Gravity.CENTER
+            inputType = InputType.TYPE_CLASS_TEXT or
+                InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS or
+                InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+            setSingleLine(true)
+            background = rounded(FIELD, 14, LINE2)
+            setPadding(dp(10), dp(14), dp(10), dp(14))
+            // Ayraçlarla birlikte 19 karakter.
+            filters = arrayOf(android.text.InputFilter.LengthFilter(Invite.LENGTH + 3))
+        }
+        edtInvite.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+
+            /**
+             * Yazıldıkça ayraçları biz koyuyoruz; kullanıcı harfleri
+             * ard arda yazsa da, yapıştırsa da aynı biçim çıkıyor.
+             */
+            override fun afterTextChanged(e: Editable) {
+                if (formattingInvite) return
+                formattingInvite = true
+                val pretty = Invite.format(
+                    Invite.normalize(e.toString()).take(Invite.LENGTH)
+                )
+                if (pretty != e.toString()) {
+                    e.replace(0, e.length, pretty)
+                    edtInvite.setSelection(edtInvite.text.length)
+                }
+                formattingInvite = false
+                refreshInvite()
+            }
+        })
+        c.addView(edtInvite, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+
+        txtInviteState = body("", 12f, DIM).apply { setPadding(0, dp(10), 0, 0) }
+        c.addView(txtInviteState)
+
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(14), 0, 0)
+        }
+        val btnNew = outlineButton("YENİ KANAL", GREEN, 0xFF1E4A36.toInt()) { newChannel() }
+        row.addView(btnNew, LinearLayout.LayoutParams(0, dp(48), 1f))
+        btnShare = outlineButton("PAYLAŞ", TEXT2, LINE2) {
+            val inv = Invite.parse(edtInvite.text.toString())
+            if (inv == null) toast("Önce geçerli bir kod gerekiyor") else shareInvite(inv.code)
+        }
+        row.addView(btnShare, LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+            leftMargin = dp(9)
+        })
+        c.addView(row)
+
+        c.addView(body(
+            "Kanala yalnızca kodu bilen girebilir; kodu bilmeyen numarayı " +
+                "denese de sesleri çözemez. Kod hem kanalı hem parolayı " +
+                "taşıyor, ayrıca parola söylemene gerek yok.",
+            12f, DIM
+        ).apply { setPadding(0, dp(14), 0, 0) })
+
+        return c
+    }
+
+    private var formattingInvite = false
+
+    /** Kod alanının altındaki durum satırı: kodun tuttuğunu girmeden gör. */
+    private fun refreshInvite() {
+        val text = edtInvite.text.toString()
+        val inv = Invite.parse(text)
+        when {
+            inv != null -> {
+                txtInviteState.text = "Kanal ${inv.channel} · uçtan uca şifreli"
+                txtInviteState.setTextColor(GREEN)
+            }
+            Invite.normalize(text).isEmpty() -> {
+                txtInviteState.text =
+                    "Kodu olan buraya yazsın, olmayan yeni kanal oluştursun."
+                txtInviteState.setTextColor(DIM)
+            }
+            else -> {
+                txtInviteState.text = "Kod eksik ya da yanlış yazılmış."
+                txtInviteState.setTextColor(AMBER)
+            }
+        }
+        val ok = inv != null
+        btnShare.isEnabled = ok
+        btnShare.alpha = if (ok) 1f else 0.45f
+    }
+
+    private fun newChannel() {
+        edtInvite.setText(Invite.create().code)
+        setManualVisible(false)
+        toast("Yeni kanal hazır — kodu konuşacağın kişilere gönder")
+    }
+
+    private fun shareInvite(code: String) {
+        try {
+            val cb = getSystemService(android.content.ClipboardManager::class.java)
+            cb?.setPrimaryClip(android.content.ClipData.newPlainText("Telsiz daveti", code))
+        } catch (_: Exception) {}
+        try {
+            startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(
+                    Intent.EXTRA_TEXT,
+                    "Telsizde buluşalım. Davet kodu: " + code
+                )
+            }, "Davet kodunu gönder"))
+        } catch (_: Exception) {
+            toast("Kod panoya kopyalandı")
+        }
+    }
+
+    /** Elle kanal seçme, davet kodunu kullanmayanlar için açılıp kapanıyor. */
+    private fun setManualVisible(visible: Boolean) {
+        manualCard.visibility = if (visible) View.VISIBLE else View.GONE
+        manualLink.text = if (visible) "Davet koduna dön" else "Kanalı elle seç"
+    }
+
+    /**
+     * Eski yol: numarayı ve parolayı ayrı ayrı gir. Kod olmadan buluşmak
+     * isteyenler ve daha önce kurulmuş kanallar için duruyor.
+     */
+    private fun buildManualCard(): View {
         val wrap = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
 
         // Kanal: eksi / büyük sayı / artı
@@ -768,6 +926,29 @@ class MainActivity : Activity() {
             12f, DIM
         ).apply { setPadding(0, dp(8), 0, 0) })
         wrap.addView(passWrap)
+
+        return wrap
+    }
+
+    private fun buildSetup(): View {
+        val wrap = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+
+        wrap.addView(buildInviteCard())
+
+        manualLink = TextView(this).apply {
+            text = "Kanalı elle seç"
+            setTextColor(MUTED)
+            textSize = 12f
+            typeface = Fonts.mono(context, bold = true)
+            letterSpacing = 0.1f
+            gravity = Gravity.CENTER
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            setOnClickListener { setManualVisible(manualCard.visibility != View.VISIBLE) }
+        }
+        wrap.addView(manualLink)
+
+        manualCard = buildManualCard()
+        wrap.addView(manualCard)
 
         // Ad
         val nickWrap = LinearLayout(this).apply {
@@ -935,9 +1116,28 @@ class MainActivity : Activity() {
 
     private fun startSession() {
         prefs.nick = edtNick.text.toString().trim()
-        prefs.channel = (edtChannel.text.toString().toIntOrNull() ?: 1).coerceIn(1, 999)
-        prefs.passphrase = edtPass.text.toString().trim()
-        edtChannel.setText(prefs.channel.toString())
+
+        val typed = edtInvite.text.toString()
+        val inv = Invite.parse(typed)
+        if (inv != null) {
+            // Kod varsa kanal da parola da ondan geliyor; elle girilen
+            // alanlara bakılmıyor.
+            prefs.invite = inv.code
+            prefs.channel = inv.channel
+            prefs.passphrase = inv.passphrase
+        } else {
+            if (Invite.normalize(typed).isNotEmpty()) {
+                // Yarım kalmış kodla sessizce başka bir kanala düşmek,
+                // "neden kimse yok" diye aranmaktan beter.
+                toast("Davet kodu eksik ya da hatalı")
+                setManualVisible(true)
+                return
+            }
+            prefs.invite = ""
+            prefs.channel = (edtChannel.text.toString().toIntOrNull() ?: 1).coerceIn(1, 999)
+            prefs.passphrase = edtPass.text.toString().trim()
+            edtChannel.setText(prefs.channel.toString())
+        }
 
         startForegroundService(Intent(this, TelsizService::class.java))
         bind()
@@ -1039,6 +1239,11 @@ class MainActivity : Activity() {
         telemetry.visibility = if (running) View.VISIBLE else View.GONE
         peersCard.visibility = if (running) View.VISIBLE else View.GONE
         replayBtn.visibility = if (running) View.VISIBLE else View.GONE
+        inviteBtn.visibility =
+            if (running && prefs.invite.isNotEmpty()) View.VISIBLE else View.GONE
+        if (inviteBtn.visibility == View.VISIBLE) {
+            inviteBtn.text = "DAVET ET · " + prefs.invite
+        }
         netCard.visibility = if (running) View.VISIBLE else View.GONE
 
         ptt.live = running

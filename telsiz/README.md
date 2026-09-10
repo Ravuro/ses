@@ -43,7 +43,8 @@ Android 8.0 ve üstü gerekir.
 
 ## Kullanım
 
-1. **Adın** ve **Kanal** (1-999) gir. Aynı kanaldakiler birbirini duyar.
+1. Kanalı kuran kişi **YENİ KANAL**'a basar, çıkan **davet kodunu**
+   **PAYLAŞ** ile gönderir. Diğerleri kodu kod alanına yazar. **Adın**'ı gir.
 2. **BAŞLAT**'a bas, mikrofon iznini ver.
 4. Büyük düğmeyi **basılı tutarak** konuş, bırakınca dinle. **Ses yükseltme
    tuşunu** basılı tutmak da aynı işi yapar — ekran kapalıyken bile. Ses
@@ -171,9 +172,40 @@ Uygulama ağ arayüzlerini sürekli izler. WiFi kopup geri gelse, hotspot açıl
 ya da Wi-Fi Direct grubu kurulsa, soketi kendiliğinden yeniden kurar ve ses
 akmaya devam eder.
 
+## Davet kodu
+
+Kurulumun tamamı tek bir dize: `DK7M-3XQP-9WR2-VN4C`. Kanalı kuran
+**YENİ KANAL**'a basıyor, kodu paylaşıyor; karşı taraf kodu yazıp
+başlatıyor. Kanal numarasını ve parolayı ayrı ayrı söylemeye gerek yok —
+ikisi de kodun içinde.
+
+Neden böyle: şifreleme geldiğinden beri bir kanalı koruyan şey zaten
+parolaydı, numara tek başına işe yaramıyordu. Ama kurulum iki adımdı ve
+ikinci adım (parolayı söylemek) unutulunca insanlar parolasız kanalda
+buluşuyordu. Kodda ikisi bir arada, dolayısıyla parolasız buluşmak kaza
+eseri olamıyor.
+
+- Kod 64 bitlik rastgele bir gizden üretiliyor. **Kanal numarası da parola
+  da o gizden türüyor**, yani numara seçilen değil türetilen bir şey:
+  "kanal 7'yi deneyeyim" diye bir yere girmek mümkün değil.
+- Yazım **Crockford Base32**: I, L, O ve U yok, çünkü telefonda okurken
+  0/O ve 1/I karışıyor. Okurken yapılan bu karışıklıklar sessizce
+  düzeltiliyor, küçük harf ve düşen ayraç da sorun değil.
+- İki baytlık sağlama yanlış yazılan kodu kanala girmeden yakalıyor. Ölçüm:
+  tek harf hatasının ve komşu harf yer değiştirmesinin **tamamı** yakalandı;
+  200 000 rastgele dizeden geçen oran 0,00002 (beklendiği gibi 1/65536).
+- Kanalı kurduktan sonra da davet edebilirsin: canlı ekranda **DAVET ET**
+  düğmesi kodu gösteriyor, basınca paylaşım penceresi açılıyor ve kod aynı
+  anda panoya kopyalanıyor.
+
+Elle kanal seçmek isteyen için kurulumdaki **Kanalı elle seç** bağlantısı
+eski numara + parola alanlarını açıyor.
+
 ## Kanal parolası ve şifreleme
 
-Kurulum ekranındaki **Kanal parolası** alanına bir şey yazarsan ses
+Davet koduyla girilen kanalda parola zaten kodun kendisi (16 karakter, 64
+bit); aşağıdaki her şey orada da geçerli. Elle kanal seçtiysen kurulum
+ekranındaki **Kanal parolası** alanına bir şey yazarsan ses
 şifrelenir ve yalnızca aynı parolayı girenler duyar. Boş bırakırsan kanal
 açık kalır; canlı ekranda kanal numarasının yanında **ŞİFRELİ** ya da
 **ŞİFRESİZ** yazıyor.
@@ -199,8 +231,9 @@ Nasıl çalışıyor:
 Ölçülen: anahtar türetme 159 ms (oturum başına bir kez), şifrele+çöz paket
 başına 0,02 ms (bütçe 40 ms), yük 16 bayt büyüyor.
 
-Parolayı uygulama hiçbir yere göndermiyor — kanaldakilere ayrıca söylemen
-gerekiyor.
+Parolayı uygulama hiçbir yere göndermiyor. Davet kodu kullanıyorsan kodu
+paylaşman yeterli; elle parola koyduysan parolayı kanaldakilere ayrıca
+söylemen gerekiyor.
 
 ## Menzil
 
