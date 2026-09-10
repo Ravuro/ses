@@ -911,15 +911,19 @@ class MainActivity : Activity() {
 
         val keyOn = keyServiceEnabled()
         if (keyOn) {
-            txtKeyHelp.text = "Sistem seviyesinde tuş yakalama açık. Ses tuşu " +
-                "ekran kapalıyken ve uygulama arka plandayken de çalışır."
+            txtKeyHelp.text = "Açık. Uygulama arka plandayken ve kilit " +
+                "ekranındayken ses tuşu çalışır.\n\nEkran tamamen " +
+                "kapalıyken (karanlıkken) Android ses tuşlarını hiçbir " +
+                "uygulamaya iletmiyor. Orada kulaklık düğmesi çalışır: bir " +
+                "bas konuşmaya başla, bir daha bas bitir."
             btnKeyHelp.text = "AÇIK · KAPATMAK İÇİN DOKUN"
             btnKeyHelp.setTextColor(GREEN)
         } else {
             txtKeyHelp.text = "Bazı telefonlarda (Xiaomi, Poco, Oppo…) ses tuşu " +
-                "arka planda çalışmaz. Çalışmıyorsa bunu aç: tuşları sistemden " +
-                "doğrudan alır.\n\nErişilebilirlik izni açılır pencereyle " +
-                "istenemiyor; listeden \"Telsiz ses tuşu\"nu elle açman gerekiyor."
+                "arka planda çalışmaz. Bunu açarsan tuşlar sistemden doğrudan " +
+                "alınır ve arka planda da kilit ekranında da çalışır.\n\n" +
+                "Erişilebilirlik izni açılır pencereyle istenemiyor; listeden " +
+                "\"Telsiz ses tuşu\"nu elle açman gerekiyor."
             btnKeyHelp.text = "ERİŞİLEBİLİRLİK AYARLARINI AÇ"
             btnKeyHelp.setTextColor(TEXT2)
         }
@@ -1018,7 +1022,7 @@ class MainActivity : Activity() {
         txtHint.text = when {
             !prefs.volumePtt -> "Konuşmak için düğmeyi basılı tut"
             keyOn -> "Düğmeyi ya da ses yükseltme tuşunu basılı tut\n" +
-                "Ekran kapalıyken de çalışır"
+                "Ekran karanlıkken kulaklık düğmesi"
             svc.keyPttReady -> {
                 val n = svc.keyPttEvents
                 "Düğmeyi ya da ses yükseltme tuşunu basılı tut\n" +

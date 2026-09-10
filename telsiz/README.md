@@ -82,6 +82,29 @@ Tuş takılı kalırsa mikrofon 60 sn sonra kendiliğinden kapanıyor.
 Bu yol cihazdan cihaza değişebilir: başka bir uygulama müzik çalıyorsa ses
 tuşları ona gidebilir. Ekran açıkken çalışan yol bundan etkilenmiyor.
 
+#### Ekran açık, ekran karanlık: iki ayrı durum
+
+Bunlar aynı şey değil ve farklı yollar gerekiyor:
+
+| Durum | Ekran | Çalışan yol |
+|-------|-------|-------------|
+| Uygulama önde | açık | Activity'nin kendi tuş dinleyicisi |
+| Arka plan / kilit ekranı | açık | Erişilebilirlik servisi |
+| Ekran kapalı (karanlık) | kapalı | Yalnızca medya oturumu, ya da kulaklık düğmesi |
+
+Ekran tamamen kapandığında Android ses tuşlarını **hiçbir uygulamaya
+iletmiyor**: pencere yöneticisi onları kendisi tüketip "kullanıcıya
+iletilmedi" diye işaretliyor. Erişilebilirlik servisi de yalnızca
+kullanıcıya iletilen tuşları görebildiği için orada devre dışı kalıyor.
+Kilit ekranında çalışıp karanlıkta susmasının sebebi bu — kod hatası değil.
+
+Karanlıkta geriye medya oturumu kalıyor ve o da sistemin ses tuşlarını
+"şu an çalan" oturuma yönlendirmesine bağlı; bazı üretici arayüzleri bunu
+yapmıyor. Bu yüzden **kulaklık düğmesi** desteklendi: medya tuşları oturuma
+doğrudan geliyor ve ekran kapalıyken güvenilir çalışıyor. Kulaklık
+düğmeleri tek tık gönderdiği için aç/kapa mantığı kullanılıyor — bir bas
+konuşmaya başla, bir daha bas bitir.
+
 #### Çalışmayan telefonlar için: erişilebilirlik
 
 Xiaomi/Poco gibi bazı arayüzlerde yukarıdaki yol hiç çalışmıyor. Bunun için
