@@ -9,11 +9,13 @@ import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.provider.Settings
 import android.text.InputType
 import android.util.TypedValue
@@ -89,6 +91,9 @@ class MainActivity : Activity() {
     private lateinit var telNetValue: TextView
     private lateinit var telBridge: View
     private lateinit var telBridgeValue: TextView
+    private lateinit var powerCard: View
+    private lateinit var txtPowerWarn: TextView
+    private lateinit var replayBtn: Button
     private lateinit var peersCard: View
     private lateinit var peersCount: TextView
     private lateinit var peersList: LinearLayout
@@ -275,9 +280,17 @@ class MainActivity : Activity() {
         }
         val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
 
+        content.addView(buildPowerCard())
         content.addView(buildLiveHero())
         content.addView(buildTelemetry(), marginTop(0))
         content.addView(buildPeers(), marginTop(14))
+
+        replayBtn = outlineButton("SON KONUŞMAYI ÇAL", TEXT2, LINE2) {
+            if (service?.replayLast() != true) toast("Tekrar çalacak bir şey yok")
+        }
+        content.addView(replayBtn, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(48)
+        ).apply { topMargin = dp(10) })
         content.addView(buildSetup())
         content.addView(buildNetCard(), marginTop(12))
 
@@ -466,6 +479,87 @@ class MainActivity : Activity() {
 
         telemetry = row
         return row
+    }
+
+    /**
+     * Pil kısıtlaması uyarısı. Xiaomi/Poco, Oppo, Vivo gibi arayüzler arka
+     * plandaki uygulamayı donduruyor; donunca ne ses tuşu duyuluyor ne de
+     * konuşma gidiyor. Kullanıcının bunu kendi bulması mümkün değil, o yüzden
+     * uygulama söylüyor.
+     */
+    private fun buildPowerCard(): View {
+        val c = card().apply {
+            background = rounded(SURFACE, 18, 0xFF4A3A1C.toInt())
+            setPadding(dp(16), dp(15), dp(16), dp(16))
+        }
+        val head = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        head.addView(dot(6, AMBER))
+        head.addView(TextView(this).apply {
+            text = "PİL KISITLAMASI AÇIK"
+            setTextColor(AMBER)
+            textSize = 10f
+            typeface = Fonts.mono(context, bold = true)
+            letterSpacing = 0.14f
+            setPadding(dp(8), 0, 0, 0)
+        })
+        c.addView(head)
+
+        txtPowerWarn = body("", 13f, TEXT2).apply { setPadding(0, dp(10), 0, dp(14)) }
+        c.addView(txtPowerWarn)
+
+        c.addView(outlineButton("PİL KISITLAMASINI KALDIR", AMBER, 0xFF4A3A1C.toInt()) {
+            openBatterySettings()
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)))
+
+        c.addView(outlineButton("UYGULAMA AYARLARINI AÇ", TEXT2, LINE2) {
+            try {
+                startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                        .setData(Uri.parse("package:$packageName"))
+                )
+            } catch (_: Exception) {
+                toast("Ayarlar açılamadı")
+            }
+        }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(46)
+        ).apply { topMargin = dp(8) })
+
+        powerCard = c
+        return c
+    }
+
+    private fun batteryRestricted(): Boolean {
+        return try {
+            val pm = getSystemService(PowerManager::class.java)
+            pm != null && !pm.isIgnoringBatteryOptimizations(packageName)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /** Üreticiye özel ek adım gerekiyor mu? */
+    private fun aggressiveVendor(): Boolean {
+        val m = (Build.MANUFACTURER + " " + Build.BRAND).lowercase()
+        return listOf("xiaomi", "poco", "redmi", "oppo", "realme", "vivo", "huawei", "honor")
+            .any { m.contains(it) }
+    }
+
+    private fun openBatterySettings() {
+        try {
+            startActivity(
+                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                    .setData(Uri.parse("package:$packageName"))
+            )
+        } catch (_: Exception) {
+            try {
+                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            } catch (_: Exception) {
+                toast("Ayarlar açılamadı")
+            }
+        }
     }
 
     private fun buildPeers(): View {
@@ -753,10 +847,28 @@ class MainActivity : Activity() {
         val running = TelsizService.isRunning
         val svc = service
 
+        val restricted = batteryRestricted()
+        powerCard.visibility = if (restricted) View.VISIBLE else View.GONE
+        if (restricted) {
+            txtPowerWarn.text = buildString {
+                append("Bu telefon uygulamayı arka planda donduruyor. ")
+                append("Donduğunda ses tuşuyla konuşma ve ekran kapalıyken ")
+                append("dinleme durur.")
+                if (aggressiveVendor()) {
+                    append("\n\n")
+                    append(Build.MANUFACTURER)
+                    append(" telefonlarda ayrıca \"Otomatik başlatma\" iznini ")
+                    append("açman ve uygulamayı son uygulamalar ekranında ")
+                    append("kilitlemen gerekiyor.")
+                }
+            }
+        }
+
         setupCard.visibility = if (running) View.GONE else View.VISIBLE
         liveHero.visibility = if (running) View.VISIBLE else View.GONE
         telemetry.visibility = if (running) View.VISIBLE else View.GONE
         peersCard.visibility = if (running) View.VISIBLE else View.GONE
+        replayBtn.visibility = if (running) View.VISIBLE else View.GONE
         netCard.visibility = if (running) View.VISIBLE else View.GONE
 
         ptt.live = running
@@ -819,6 +931,13 @@ class MainActivity : Activity() {
         telBridge.visibility = if (svc.bridging) View.VISIBLE else View.INVISIBLE
         telBridgeValue.text = "açık"
         telBridgeValue.setTextColor(CYAN)
+
+        val secs = svc.replaySeconds
+        replayBtn.isEnabled = svc.replayAvailable
+        replayBtn.alpha = if (svc.replayAvailable) 1f else 0.45f
+        replayBtn.text =
+            if (svc.replayAvailable) "SON KONUŞMAYI ÇAL · $secs SN"
+            else "TEKRAR DİNLENECEK KONUŞMA YOK"
 
         refreshPeers(svc)
         refreshNetCard(svc)

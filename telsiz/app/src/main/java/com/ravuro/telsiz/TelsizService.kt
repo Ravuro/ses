@@ -110,6 +110,13 @@ class TelsizService : Service() {
 
     /** Sisteme gelen ses tuşu olayı sayısı — yolun çalıştığının kanıtı. */
     val keyPttEvents: Int get() = keyPtt?.events ?: 0
+
+    // ---- kaçırılanı tekrar dinleme ----
+
+    val replayAvailable: Boolean get() = engine?.replayAvailable == true
+    val replaySeconds: Int get() = engine?.replaySeconds ?: 0
+
+    fun replayLast(): Boolean = engine?.replayLast() == true
     val transmitting: Boolean get() = engine?.transmitting == true
 
     private val txBuf = ByteArray(Packet.MAX)

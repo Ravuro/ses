@@ -38,6 +38,13 @@ class AudioEngine(private val onFrame: (ByteArray, Int, Int, Int) -> Unit) {
         private const val AGC_RELEASE = 0.06f  // yükseltmek yavaş
         private const val AGC_FLOOR = 250      // bunun altı sessizlik sayılır
         private const val LIMIT_KNEE = 26000f
+
+        /** Tekrar dinleme için saklanan en uzun süre. */
+        private const val REPLAY_MAX_SEC = 20
+        /** Bu kadar sessizlikten sonra konuşma bitmiş sayılır. */
+        private const val SEGMENT_GAP_MS = 900L
+        /** Tekrar çalınan ses bu sahte gönderenin kuyruğundan geçiyor. */
+        private const val REPLAY_SENDER = 0L
     }
 
     private class SenderQueue {
@@ -72,6 +79,25 @@ class AudioEngine(private val onFrame: (ByteArray, Int, Int, Int) -> Unit) {
     /** Kodlayıcı durumu kareler boyunca akıyor; her paket başlangıcını taşıyor. */
     private val encState = Adpcm.State()
     private var agcGain = 1f
+
+    // ---- kaçırılanı tekrar dinleme ----
+    //
+    // Gelen ses, konuşma parçalarına ayrılarak saklanıyor. Bir konuşma
+    // bittiğinde (araya SEGMENT_GAP_MS sessizlik girince) o parça kenara
+    // konuyor ve tek düğmeyle tekrar çalınabiliyor. Gürültülü ortamda en
+    // çok işe yarayan şey bu: "ne dedi?" sorusunun cevabı.
+    private val replayLock = Object()
+    // Halka tampon: konuşma sınırı aşarsa baştan atıp sonu tutuyor.
+    // "Ne dedi?" diye sorulduğunda istenen şey konuşmanın sonu.
+    private val recBuf = ShortArray(SAMPLE_RATE * REPLAY_MAX_SEC)
+    private var recStart = 0
+    private var recLen = 0
+    private var lastVoiceAt = 0L
+    private var savedSegment: ShortArray? = null
+
+    @Volatile var replaySeconds: Int = 0
+        private set
+    val replayAvailable: Boolean get() = replaySeconds > 0
 
     @Volatile private var running = false
     @Volatile var transmitting = false
@@ -151,6 +177,12 @@ class AudioEngine(private val onFrame: (ByteArray, Int, Int, Int) -> Unit) {
         try { track?.stop() } catch (_: Exception) {}
         release()
         queues.clear()
+        synchronized(replayLock) {
+            recLen = 0
+            recStart = 0
+            savedSegment = null
+            replaySeconds = 0
+        }
     }
 
     fun startTx() {
@@ -179,7 +211,59 @@ class AudioEngine(private val onFrame: (ByteArray, Int, Int, Int) -> Unit) {
         val n = Adpcm.decode(data, off, len, pcm, predictor, index)
         if (n <= 0) return
         val frame = if (n == pcm.size) pcm else pcm.copyOf(n)
+        record(frame, n)
         queues.getOrPut(senderId) { SenderQueue() }.offer(frame)
+    }
+
+    /** Gelen sesi, tekrar dinlenebilmesi için parçalara ayırarak biriktirir. */
+    private fun record(frame: ShortArray, n: Int) {
+        val now = System.currentTimeMillis()
+        synchronized(replayLock) {
+            // Araya uzun sessizlik girdiyse önceki konuşma bitmiştir.
+            if (recLen > 0 && now - lastVoiceAt > SEGMENT_GAP_MS) closeSegment()
+            lastVoiceAt = now
+            for (i in 0 until n) {
+                recBuf[(recStart + recLen) % recBuf.size] = frame[i]
+                if (recLen < recBuf.size) {
+                    recLen++
+                } else {
+                    recStart = (recStart + 1) % recBuf.size
+                }
+            }
+        }
+    }
+
+    /** replayLock tutulurken çağrılır. Halkayı düz diziye açar. */
+    private fun closeSegment() {
+        if (recLen <= 0) return
+        val seg = ShortArray(recLen)
+        for (i in 0 until recLen) seg[i] = recBuf[(recStart + i) % recBuf.size]
+        savedSegment = seg
+        replaySeconds = maxOf(1, recLen / SAMPLE_RATE)
+        recLen = 0
+        recStart = 0
+    }
+
+    /** Son konuşmayı yeniden çalar. Canlı ses gelirse üstüne karışır. */
+    fun replayLast(): Boolean {
+        val seg = synchronized(replayLock) {
+            // Konuşma henüz kapanmadıysa (hemen sonra basıldıysa) şimdi kapat.
+            if (recLen > 0 && System.currentTimeMillis() - lastVoiceAt > SEGMENT_GAP_MS) {
+                closeSegment()
+            }
+            savedSegment
+        } ?: return false
+
+        val q = queues.getOrPut(REPLAY_SENDER) { SenderQueue() }
+        var off = 0
+        while (off < seg.size) {
+            val n = minOf(FRAME_SAMPLES, seg.size - off)
+            val f = ShortArray(FRAME_SAMPLES)
+            System.arraycopy(seg, off, f, 0, n)
+            q.offer(f)
+            off += n
+        }
+        return true
     }
 
     /**
@@ -288,6 +372,16 @@ class AudioEngine(private val onFrame: (ByteArray, Int, Int, Int) -> Unit) {
             //
             // Konuşurken de sessizlik yazılıyor: hoparlör mikrofona kaçmasın
             // diye gelen ses çalınmıyor ama akış kesilmiyor.
+            // Konuşma bitişini burada yakalıyoruz: paket gelmeyi kesince
+            // record() bir daha çağrılmıyor, dolayısıyla parçayı kapatacak
+            // başka bir yer yok.
+            if (active == 0) {
+                val now = System.currentTimeMillis()
+                synchronized(replayLock) {
+                    if (recLen > 0 && now - lastVoiceAt > SEGMENT_GAP_MS) closeSegment()
+                }
+            }
+
             val mute = active == 0 || (halfDuplex && transmitting)
             if (mute) {
                 java.util.Arrays.fill(out, 0)

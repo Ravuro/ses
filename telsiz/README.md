@@ -49,6 +49,25 @@ Android 8.0 ve üstü gerekir.
    tuşunu** basılı tutmak da aynı işi yapar — ekran kapalıyken bile. Ses
    kısma tuşu ses ayarı olarak kalır. İstemezsen ayarlardan kapatabilirsin.
 
+### Kaçırdığını tekrar dinle
+
+Gelen ses konuşma parçalarına ayrılarak bellekte tutuluyor: araya 900 ms'den
+uzun sessizlik girince o konuşma bitmiş sayılıp kenara konuyor. **SON
+KONUŞMAYI ÇAL** düğmesi onu yeniden çalıyor. Son 20 saniye saklanıyor;
+daha uzun konuşmalarda konuşmanın sonu tutuluyor (halka tampon), çünkü
+"ne dedi?" diye sorulduğunda istenen şey sonu.
+
+Tekrar, ayrı bir sahte gönderenin kuyruğundan geçiyor — yani canlı ses
+gelirse üstüne karışıyor, bir şey kaçırmıyorsun.
+
+### Arka planda donma (Xiaomi, Oppo, Vivo, Huawei)
+
+Bu arayüzler arka plandaki uygulamayı donduruyor; donduğunda ne ses tuşu
+duyuluyor ne de konuşma gidiyor. Uygulama bunu algılayıp uyarı gösteriyor ve
+pil kısıtlamasını kaldıracak ayarı açıyor. Xiaomi/Poco'da ayrıca
+"Otomatik başlatma" izni ve son uygulamalar ekranında kilitleme gerekiyor —
+bunlar standart bir arayüzden açılamıyor, kullanıcının elle yapması lazım.
+
 ### Ekran kapalıyken ses tuşu
 
 Ekran kapandığında tuş olayları uygulamaya gelmez. Uygulama bunun için bir
