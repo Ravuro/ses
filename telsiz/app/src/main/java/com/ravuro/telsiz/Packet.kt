@@ -11,14 +11,21 @@ package com.ravuro.telsiz
  *  8..15  gönderen kimliği (int64)
  *  16..19 sıra numarası (int32)
  *  20..21 yük uzunluğu (uint16)
- *  22..   yük
+ *  22..23 ADPCM başlangıç öngörüsü (int16)
+ *  24     ADPCM başlangıç adımı (0-88)
+ *  25..   yük
+ *
+ * Ses paketleri kendi ADPCM başlangıç durumunu taşıyor: kodlayıcı kareler
+ * boyunca akmaya devam ediyor ama her paket tek başına çözülebiliyor.
  */
 object Packet {
 
-    const val HEADER = 22
+    const val HEADER = 25
     const val MAX = 1400
 
-    const val VERSION: Byte = 1
+    // 2: ADPCM durumu başlığa eklendi. Eski sürüm paketleri reddediyor —
+    // herkesin güncellemesi gerekiyor, karışık ses duyulmasındansa iyi.
+    const val VERSION: Byte = 2
     const val TYPE_AUDIO: Byte = 1
     const val TYPE_PRESENCE: Byte = 2
 
@@ -29,6 +36,8 @@ object Packet {
         var seq: Int = 0
         var payloadOff: Int = 0
         var payloadLen: Int = 0
+        var predictor: Int = 0
+        var index: Int = 0
     }
 
     fun build(
@@ -38,7 +47,9 @@ object Packet {
         senderId: Long,
         seq: Int,
         payload: ByteArray,
-        payloadLen: Int
+        payloadLen: Int,
+        predictor: Int = 0,
+        index: Int = 0
     ): Int {
         out[0] = 'T'.code.toByte()
         out[1] = 'L'.code.toByte()
@@ -50,6 +61,8 @@ object Packet {
         putLong(out, 8, senderId)
         putInt(out, 16, seq)
         putShort(out, 20, payloadLen)
+        putShort(out, 22, predictor and 0xFFFF)
+        out[24] = index.toByte()
         System.arraycopy(payload, 0, out, HEADER, payloadLen)
         return HEADER + payloadLen
     }
@@ -66,6 +79,9 @@ object Packet {
         into.senderId = getLong(buf, 8)
         into.seq = getInt(buf, 16)
         into.payloadLen = getShort(buf, 20)
+        // int16 olarak yorumla: öngörü negatif olabiliyor
+        into.predictor = getShort(buf, 22).toShort().toInt()
+        into.index = buf[24].toInt()
         into.payloadOff = HEADER
         if (into.payloadLen < 0 || HEADER + into.payloadLen > len) return false
         return true

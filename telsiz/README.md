@@ -173,9 +173,16 @@ cihazlara olduğu gibi iletir.
   istemcisi (`WebSocketClient.kt`) elde yazıldı.
 - `res/` klasörü yok; arayüz koddan kuruluyor.
 - 16 kHz mono ses, **IMA ADPCM** ile 4:1 sıkıştırma → ~64 kbps.
-- Her paket bağımsız kodlanır: kaybolan bir UDP paketi sonrakileri bozmaz.
-- 40 ms'lik parçalar; gönderen başına jitter tamponu, aynı anda konuşanlar
-  karıştırılır.
+- Kodlayıcı durumu kareler boyunca akar ama her paket kendi başlangıç
+  durumunu başlığında taşır: paketler hâlâ birbirinden bağımsız çözülür
+  (kaybolan paket sonrakileri bozmaz) ama kodlayıcı 40 ms'de bir sıfırdan
+  başlamaz. Ölçülen SNR 20,1 → 34,1 dB.
+- Mikrofonda tepe izleyen otomatik kazanç ve yumuşak sınırlama: kısık
+  konuşma yükseltilir, tepe noktaları kırpılmak yerine 4:1 sıkıştırılır.
+  Kazanç kodlamadan önce uygulanır — ADPCM'in hata payı sinyal seviyesine
+  göreli olduğu için bu aynı zamanda kaliteyi de artırır.
+- 40 ms'lik parçalar; gönderen başına 3 karelik (120 ms) jitter tamponu,
+  aynı anda konuşanlar karıştırılır.
 - LAN tarafında hem multicast (`239.255.42.99:47771`) hem subnet broadcast
   kullanılır — router'ların ve hotspot'ların hangisini geçirdiği değişiyor.
 - Konuşurken hoparlör kapanır (yarı çift yönlü), böylece geri besleme olmaz.

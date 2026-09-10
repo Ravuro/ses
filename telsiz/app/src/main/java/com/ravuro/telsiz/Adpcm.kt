@@ -3,11 +3,28 @@ package com.ravuro.telsiz
 /**
  * IMA ADPCM — 16 bit PCM'i 4 bit'e indirir (4:1).
  *
- * Her paket bağımsız kodlanır: kodlayıcı/çözücü durumu her çağrıda sıfırlanır.
- * Böylece UDP'de kaybolan bir paket kendinden sonrakileri bozmaz; kayıp yalnız
- * o 40 ms'lik parçada kalır.
+ * Kodlayıcı durumu (öngörü + adım) kareler arasında taşınır ama her paketin
+ * başlangıç durumu paketin kendi başlığında gider. Böylece paketler hâlâ
+ * birbirinden bağımsız çözülebiliyor — kaybolan bir paket sonrakileri
+ * bozmuyor — ama kodlayıcı her karede sıfırdan başlamak zorunda kalmıyor.
+ *
+ * Bu ayrım önemli: durum her karede sıfırlandığında kodlayıcı 40 ms'de bir
+ * doğru genliğe yeniden tırmanmak zorunda kalıyor ve karenin ilk milisaniyeleri
+ * bozuluyordu. Ölçümde kare başındaki hata karenin geri kalanının 24 katıydı;
+ * 40 ms'de bir tekrarlandığı için kulağa 25 Hz'lik bir cızırtı olarak geliyordu.
  */
 object Adpcm {
+
+    /** Kodlayıcı/çözücü durumu. Kareler arasında taşınır, pakette gönderilir. */
+    class State {
+        var predictor: Int = 0
+        var index: Int = 0
+
+        fun reset() {
+            predictor = 0
+            index = 0
+        }
+    }
 
     private val STEP = intArrayOf(
         7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45,
@@ -20,10 +37,13 @@ object Adpcm {
 
     private val INDEX = intArrayOf(-1, -1, -1, -1, 2, 4, 6, 8, -1, -1, -1, -1, 2, 4, 6, 8)
 
-    /** [count] örneği kodlar, [out]'a yazılan bayt sayısını döner. */
-    fun encode(pcm: ShortArray, count: Int, out: ByteArray): Int {
-        var predictor = 0
-        var index = 0
+    /**
+     * [count] örneği kodlar, [out]'a yazılan bayt sayısını döner.
+     * [st] güncellenir; çağıran, kodlamadan ÖNCEKİ durumu pakete koymalı.
+     */
+    fun encode(pcm: ShortArray, count: Int, out: ByteArray, st: State): Int {
+        var predictor = st.predictor
+        var index = st.index
         var outPos = 0
         var pending = 0
         var half = false
@@ -64,13 +84,25 @@ object Adpcm {
             }
         }
         if (half) out[outPos++] = pending.toByte()
+        st.predictor = predictor
+        st.index = index
         return outPos
     }
 
-    /** [len] baytı çözer, [out]'a yazılan örnek sayısını döner. */
-    fun decode(data: ByteArray, off: Int, len: Int, out: ShortArray): Int {
-        var predictor = 0
-        var index = 0
+    /**
+     * [len] baytı, paketin taşıdığı [startPredictor]/[startIndex] durumundan
+     * başlayarak çözer. [out]'a yazılan örnek sayısını döner.
+     */
+    fun decode(
+        data: ByteArray,
+        off: Int,
+        len: Int,
+        out: ShortArray,
+        startPredictor: Int = 0,
+        startIndex: Int = 0
+    ): Int {
+        var predictor = startPredictor.coerceIn(-32768, 32767)
+        var index = startIndex.coerceIn(0, 88)
         var n = 0
 
         for (i in 0 until len) {

@@ -19,13 +19,25 @@ import java.util.concurrent.ConcurrentLinkedQueue
  * konuşan birden fazla kişiyi toplayarak karıştırır — gerçek bir telsizde
  * sesler üst üste biner, burada da öyle.
  */
-class AudioEngine(private val onFrame: (ByteArray, Int) -> Unit) {
+class AudioEngine(private val onFrame: (ByteArray, Int, Int, Int) -> Unit) {
 
     companion object {
         const val SAMPLE_RATE = 16000
         const val FRAME_SAMPLES = 640          // 40 ms
         private const val MAX_QUEUED = 25      // ~1 sn: gecikme sınırı
-        private const val PRIME_FRAMES = 2     // oynatmadan önce biriktirilecek
+        // 3 kare = 120 ms. 2 kare yetmiyordu: tek bir geciken paket kuyruğu
+        // boşaltıp oynatmayı kesiyor, kelimenin ortasında boşluk açılıyordu.
+        private const val PRIME_FRAMES = 3
+
+        // Otomatik kazanç: mikrofon çoğu telefonda konuşma için fazla kısık
+        // geliyor. Sabit bir çarpan kimine az kimine çok gelirdi; bunun yerine
+        // tepe değeri izleyip hedefe yaklaştırıyoruz.
+        private const val AGC_TARGET = 20000f
+        private const val AGC_MAX = 8f
+        private const val AGC_ATTACK = 0.5f    // kazancı düşürmek hızlı
+        private const val AGC_RELEASE = 0.06f  // yükseltmek yavaş
+        private const val AGC_FLOOR = 250      // bunun altı sessizlik sayılır
+        private const val LIMIT_KNEE = 26000f
     }
 
     private class SenderQueue {
@@ -56,6 +68,10 @@ class AudioEngine(private val onFrame: (ByteArray, Int) -> Unit) {
 
     private var txThread: Thread? = null
     private var rxThread: Thread? = null
+
+    /** Kodlayıcı durumu kareler boyunca akıyor; her paket başlangıcını taşıyor. */
+    private val encState = Adpcm.State()
+    private var agcGain = 1f
 
     @Volatile private var running = false
     @Volatile var transmitting = false
@@ -142,6 +158,9 @@ class AudioEngine(private val onFrame: (ByteArray, Int) -> Unit) {
         if (transmitting) return
         try {
             rec.startRecording()
+            // Yeni konuşma yeni bir akış: kodlayıcı ve kazanç sıfırdan.
+            encState.reset()
+            agcGain = 1f
             transmitting = true
         } catch (e: Exception) {
             lastError = e.message
@@ -155,9 +174,9 @@ class AudioEngine(private val onFrame: (ByteArray, Int) -> Unit) {
     }
 
     /** Ağdan gelen ADPCM parçasını çözüp o gönderenin kuyruğuna koyar. */
-    fun enqueue(senderId: Long, data: ByteArray, off: Int, len: Int) {
+    fun enqueue(senderId: Long, data: ByteArray, off: Int, len: Int, predictor: Int, index: Int) {
         val pcm = ShortArray(len * 2)
-        val n = Adpcm.decode(data, off, len, pcm)
+        val n = Adpcm.decode(data, off, len, pcm, predictor, index)
         if (n <= 0) return
         val frame = if (n == pcm.size) pcm else pcm.copyOf(n)
         queues.getOrPut(senderId) { SenderQueue() }.offer(frame)
@@ -182,10 +201,48 @@ class AudioEngine(private val onFrame: (ByteArray, Int) -> Unit) {
                 -1
             }
             if (r > 0 && transmitting) {
-                val n = Adpcm.encode(pcm, r, enc)
-                onFrame(enc, n)
+                applyGain(pcm, r)
+                // Paket, kodlamadan ÖNCEKİ durumu taşımalı ki karşı taraf
+                // aynı noktadan başlasın.
+                val p0 = encState.predictor
+                val i0 = encState.index
+                val n = Adpcm.encode(pcm, r, enc, encState)
+                onFrame(enc, n, p0, i0)
             } else if (r <= 0) {
                 try { Thread.sleep(10) } catch (_: InterruptedException) { return }
+            }
+        }
+    }
+
+    /**
+     * Tepe izleyen kazanç + yumuşak sınırlama. Kodlamadan önce uygulanıyor:
+     * ADPCM'in hata payı sinyal seviyesine göreli, dolayısıyla sinyali
+     * yükseltmek yalnızca sesi açmakla kalmıyor, kaliteyi de artırıyor.
+     */
+    private fun applyGain(pcm: ShortArray, n: Int) {
+        var peak = 0
+        for (i in 0 until n) {
+            val a = if (pcm[i] < 0) -pcm[i].toInt() else pcm[i].toInt()
+            if (a > peak) peak = a
+        }
+
+        if (peak > AGC_FLOOR) {
+            val desired = (AGC_TARGET / peak).coerceIn(1f, AGC_MAX)
+            val rate = if (desired < agcGain) AGC_ATTACK else AGC_RELEASE
+            agcGain += (desired - agcGain) * rate
+        }
+        if (agcGain <= 1.001f) return
+
+        for (i in 0 until n) {
+            var v = pcm[i] * agcGain
+            // Tepe noktalarını kesmek yerine 4:1 sıkıştır: sert kırpma
+            // duyulur bir çatırtı yapıyor.
+            if (v > LIMIT_KNEE) v = LIMIT_KNEE + (v - LIMIT_KNEE) * 0.25f
+            else if (v < -LIMIT_KNEE) v = -LIMIT_KNEE + (v + LIMIT_KNEE) * 0.25f
+            pcm[i] = when {
+                v > 32767f -> 32767
+                v < -32768f -> -32768
+                else -> v.toInt().toShort()
             }
         }
     }

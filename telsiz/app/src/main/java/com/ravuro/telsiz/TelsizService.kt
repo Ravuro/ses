@@ -154,7 +154,9 @@ class TelsizService : Service() {
         } catch (_: Exception) {
         }
 
-        val eng = AudioEngine { data, len -> broadcastAudio(data, len) }
+        val eng = AudioEngine { data, len, predictor, index ->
+            broadcastAudio(data, len, predictor, index)
+        }
         if (!eng.start()) {
             startError = eng.lastError ?: "ses başlatılamadı"
             stopForegroundCompat()
@@ -246,8 +248,8 @@ class TelsizService : Service() {
 
     // ---- ağ ----
 
-    private fun broadcastAudio(data: ByteArray, len: Int) {
-        sendPacket(Packet.TYPE_AUDIO, data, len)
+    private fun broadcastAudio(data: ByteArray, len: Int, predictor: Int, index: Int) {
+        sendPacket(Packet.TYPE_AUDIO, data, len, predictor, index)
     }
 
     private fun sendPresence() {
@@ -259,9 +261,17 @@ class TelsizService : Service() {
      * Ses ve yoklama ayrı thread'lerden geliyor; paylaşılan gönderim tamponu
      * kurulup gönderilene kadar tek parça olarak kilitli kalmalı.
      */
-    private fun sendPacket(type: Byte, payload: ByteArray, len: Int) {
+    private fun sendPacket(
+        type: Byte,
+        payload: ByteArray,
+        len: Int,
+        predictor: Int = 0,
+        index: Int = 0
+    ) {
         synchronized(txBuf) {
-            val total = Packet.build(txBuf, type, channel, deviceId, seq++, payload, len)
+            val total = Packet.build(
+                txBuf, type, channel, deviceId, seq++, payload, len, predictor, index
+            )
             lan?.send(txBuf, total)
             relay?.send(txBuf, total)
         }
@@ -296,7 +306,10 @@ class TelsizService : Service() {
                     it.lastSeen = now
                     it.lastAudio = now
                 }
-                engine?.enqueue(parsed.senderId, buf, parsed.payloadOff, parsed.payloadLen)
+                engine?.enqueue(
+                    parsed.senderId, buf, parsed.payloadOff, parsed.payloadLen,
+                    parsed.predictor, parsed.index
+                )
             }
             Packet.TYPE_PRESENCE -> {
                 val name = String(buf, parsed.payloadOff, parsed.payloadLen, Charsets.UTF_8)
