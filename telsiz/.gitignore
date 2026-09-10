@@ -9,3 +9,4 @@ captures/
 node_modules/
 .nosdk/
 *.p12
+telsiz-data/

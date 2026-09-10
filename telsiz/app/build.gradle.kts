@@ -13,8 +13,10 @@ android {
         // uyumluluk kütüphanesine gerek kalmıyor.
         minSdk = 26
         targetSdk = 28
-        versionCode = 1
-        versionName = "1.0"
+        // build-nosdk.sh ile aynı numarada tutuluyor: daha düşük bir sürümü
+        // telefona kurmaya çalışmak "downgrade" hatası veriyor.
+        versionCode = 6
+        versionName = "1.5"
     }
 
     buildFeatures {
