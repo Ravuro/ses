@@ -32,5 +32,23 @@
         <service
             android:name="com.ravuro.telsiz.TelsizService"
             android:exported="false" />
+
+        <!--
+          Ses tuşunu sistem seviyesinde yakalar. Bazı üretici arayüzleri
+          medya oturumu yolunu çalıştırmadığı için gerekiyor; kullanıcı
+          Ayarlar'dan elle açmadıkça devreye girmez.
+        -->
+        <service
+            android:name="com.ravuro.telsiz.KeyService"
+            android:exported="true"
+            android:label="Telsiz ses tuşu"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/erisim" />
+        </service>
     </application>
 </manifest>

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Erişilebilirlik servisi ayarı.
+
+  Değerler ham sayı olarak yazılmış çünkü kaynak derleyicisi (aapt2) yok:
+  isim-değer eşlemesini yapacak kimse olmadığından sabitleri doğrudan
+  yazıyoruz. Karşılıkları android.accessibilityservice sabitleri:
+
+    accessibilityEventTypes  0xffffffff  TYPES_ALL_MASK
+    accessibilityFeedbackType      0x10  FEEDBACK_GENERIC
+    accessibilityFlags             0x22  FLAG_REQUEST_FILTER_KEY_EVENTS (0x20)
+                                         | FLAG_INCLUDE_NOT_IMPORTANT_VIEWS (0x02)
+
+  Tuş olaylarını alabilmek için hem canRequestFilterKeyEvents hem de
+  flagRequestFilterKeyEvents gerekiyor; biri eksikse onKeyEvent hiç çağrılmaz.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="0xffffffff"
+    android:accessibilityFeedbackType="0x00000010"
+    android:accessibilityFlags="0x00000022"
+    android:canRequestFilterKeyEvents="true"
+    android:notificationTimeout="100" />

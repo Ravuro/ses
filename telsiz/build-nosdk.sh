@@ -74,9 +74,14 @@ java -Xmx2g -cp tools/dx.jar com.android.dx.command.Main --dex \
 echo "[4/7] Ikon ve kaynak tablosu uretiliyor"
 # Uygulamanin tek kaynagi ikon. aapt2 olmadigi icin PNG'yi biz ciziyor,
 # resources.arsc'yi biz yaziyoruz.
-mkdir -p stage/res/drawable-xxxhdpi
+mkdir -p stage/res/drawable-xxxhdpi stage/res/xml
 java -cp tools/classes MakeIcon 192 stage/res/drawable-xxxhdpi/ic_launcher.png
-java -cp tools/classes ArscEncoder "$PKG" res/drawable-xxxhdpi/ic_launcher.png stage/resources.arsc
+# Erisilebilirlik servisinin ayar dosyasi da ikili XML olmali.
+java -cp "tools/classes:android.jar" AxmlEncoder \
+    "$ROOT/app/src/main/res/xml/erisim.xml" stage/res/xml/erisim.xml
+java -cp tools/classes ArscEncoder "$PKG" stage/resources.arsc \
+    drawable:ic_launcher:res/drawable-xxxhdpi/ic_launcher.png:640 \
+    xml:erisim:res/xml/erisim.xml
 
 echo "[5/7] Manifest ikili formata cevriliyor"
 python3 - "$MANIFEST" stage/manifest-src.xml "$PKG" "$MIN_SDK" "$TARGET_SDK" \
@@ -91,9 +96,12 @@ s = s.replace(
     '    package="%s"\n    android:versionCode="%s"\n    android:versionName="%s">\n'
     '    <uses-sdk android:minSdkVersion="%s" android:targetSdkVersion="%s" />'
     % (pkg, vc, vn, mn, tg))
-# Ikon kaynagi ArscEncoder'in urettigi tabloda 0x7f010000'da duruyor.
+# Kaynak adlarini ham kimliklere cevir: aapt2 olmadigi icin "@xml/erisim"
+# gibi adlari cozecek kimse yok. Sira ArscEncoder cagrisiyla ayni.
 s = s.replace('<application\n', '<application\n        android:icon="@0x7f010000"\n', 1)
 assert 'android:icon' in s, 'ikon niteligi eklenemedi'
+s = s.replace('"@xml/erisim"', '"@0x7f020000"')
+assert '@xml/' not in s, 'cozulmemis kaynak adi kaldi'
 open(dst, 'w', encoding='utf-8').write(s)
 PY
 java -cp "tools/classes:android.jar" AxmlEncoder stage/manifest-src.xml stage/AndroidManifest.xml

@@ -82,6 +82,22 @@ Tuş takılı kalırsa mikrofon 60 sn sonra kendiliğinden kapanıyor.
 Bu yol cihazdan cihaza değişebilir: başka bir uygulama müzik çalıyorsa ses
 tuşları ona gidebilir. Ekran açıkken çalışan yol bundan etkilenmiyor.
 
+#### Çalışmayan telefonlar için: erişilebilirlik
+
+Xiaomi/Poco gibi bazı arayüzlerde yukarıdaki yol hiç çalışmıyor. Bunun için
+`KeyService.kt` var: tuş olaylarını sistemin kendisinden alan bir
+erişilebilirlik servisi, dolayısıyla medya oturumu önceliğine bağlı değil ve
+bas/bırak tam geliyor (bırakma kuyruğu yok).
+
+Bu izin **açılır pencereyle istenemiyor** — sistem yalnızca kullanıcının
+Ayarlar'dan elle açmasına izin veriyor. Uygulama durumu okuyup ilgili ekrana
+götürüyor (kurulum ekranındaki "Ses tuşu arka planda" kartı).
+
+Ayar dosyası (`res/xml/erisim.xml`) ikili XML olmak zorunda ve bir kaynak
+kimliğiyle gösterilmesi gerekiyor; bu yüzden `ArscEncoder` iki kaynak tipini
+(`drawable` ve `xml`) destekleyecek şekilde genişletildi. Değerler ham sayı
+olarak yazılıyor çünkü isim-değer eşlemesini yapacak `aapt2` yok.
+
 Ekran iki durumlu: kapalıyken ayarlar görünür, açıldığında yerine bağlantı
 durumu ve kanaldakiler gelir.
 

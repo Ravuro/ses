@@ -34,6 +34,21 @@ class TelsizService : Service() {
         private const val PEER_TTL_MS = 12000L
 
         @Volatile var isRunning = false
+
+        /**
+         * Erişilebilirlik servisi tuş olaylarını buraya veriyor. İkisi aynı
+         * süreçte çalıştığı için doğrudan başvuru yeterli; servis dururken
+         * temizleniyor.
+         */
+        @Volatile private var current: TelsizService? = null
+
+        fun keyDown() {
+            current?.startTx()
+        }
+
+        fun keyUp() {
+            current?.stopTx()
+        }
     }
 
     /** Paketin hangi taşıyıcıdan geldiği — köprüleme için gerekli. */
@@ -210,6 +225,7 @@ class TelsizService : Service() {
             .apply { isDaemon = true; start() }
 
         isRunning = true
+        current = this
         startError = null
         updateNotification()
     }
@@ -234,6 +250,7 @@ class TelsizService : Service() {
 
     private fun stopSession() {
         isRunning = false
+        current = null
         presenceThread?.interrupt()
         presenceThread = null
         keyPtt?.stop()

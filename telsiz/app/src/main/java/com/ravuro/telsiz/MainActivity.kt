@@ -91,6 +91,9 @@ class MainActivity : Activity() {
     private lateinit var telNetValue: TextView
     private lateinit var telBridge: View
     private lateinit var telBridgeValue: TextView
+    private lateinit var keyHelpCard: View
+    private lateinit var txtKeyHelp: TextView
+    private lateinit var btnKeyHelp: Button
     private lateinit var powerCard: View
     private lateinit var txtPowerWarn: TextView
     private lateinit var replayBtn: Button
@@ -487,6 +490,46 @@ class MainActivity : Activity() {
      * konuşma gidiyor. Kullanıcının bunu kendi bulması mümkün değil, o yüzden
      * uygulama söylüyor.
      */
+    /**
+     * Ses tuşu arka planda çalışmıyorsa erişilebilirlik yolu.
+     *
+     * Bu izin açılır pencereyle istenemiyor; sistem yalnızca kullanıcının
+     * Ayarlar'dan elle açmasına izin veriyor. Uygulamanın yapabileceği tek
+     * şey durumu okuyup doğru ekrana götürmek.
+     */
+    private fun buildKeyHelpCard(): View {
+        val c = card()
+        c.addView(caption("SES TUŞU ARKA PLANDA"))
+        txtKeyHelp = body("", 13f, TEXT2).apply { setPadding(0, dp(10), 0, dp(14)) }
+        c.addView(txtKeyHelp)
+        btnKeyHelp = outlineButton("ERİŞİLEBİLİRLİK AYARLARINI AÇ", TEXT2, LINE2) {
+            try {
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                toast("Listeden \"Telsiz ses tuşu\"nu aç")
+            } catch (_: Exception) {
+                toast("Ayarlar açılamadı")
+            }
+        }
+        c.addView(btnKeyHelp, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(46)
+        ))
+        keyHelpCard = c
+        return c
+    }
+
+    /** Erişilebilirlik servisi kullanıcı tarafından açılmış mı? */
+    private fun keyServiceEnabled(): Boolean {
+        return try {
+            val want = KeyService.componentName(packageName)
+            val on = Settings.Secure.getString(
+                contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+            ) ?: return false
+            on.split(':').any { it.equals(want, ignoreCase = true) }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     private fun buildPowerCard(): View {
         val c = card().apply {
             background = rounded(SURFACE, 18, 0xFF4A3A1C.toInt())
@@ -632,6 +675,8 @@ class MainActivity : Activity() {
             ViewGroup.LayoutParams.MATCH_PARENT, dp(52)
         ))
         wrap.addView(nickWrap)
+
+        wrap.addView(buildKeyHelpCard(), marginTop(14))
 
         volumeToggle = toggleRow(
             "Ses tuşuyla konuş",
@@ -864,6 +909,21 @@ class MainActivity : Activity() {
             }
         }
 
+        val keyOn = keyServiceEnabled()
+        if (keyOn) {
+            txtKeyHelp.text = "Sistem seviyesinde tuş yakalama açık. Ses tuşu " +
+                "ekran kapalıyken ve uygulama arka plandayken de çalışır."
+            btnKeyHelp.text = "AÇIK · KAPATMAK İÇİN DOKUN"
+            btnKeyHelp.setTextColor(GREEN)
+        } else {
+            txtKeyHelp.text = "Bazı telefonlarda (Xiaomi, Poco, Oppo…) ses tuşu " +
+                "arka planda çalışmaz. Çalışmıyorsa bunu aç: tuşları sistemden " +
+                "doğrudan alır.\n\nErişilebilirlik izni açılır pencereyle " +
+                "istenemiyor; listeden \"Telsiz ses tuşu\"nu elle açman gerekiyor."
+            btnKeyHelp.text = "ERİŞİLEBİLİRLİK AYARLARINI AÇ"
+            btnKeyHelp.setTextColor(TEXT2)
+        }
+
         setupCard.visibility = if (running) View.GONE else View.VISIBLE
         liveHero.visibility = if (running) View.VISIBLE else View.GONE
         telemetry.visibility = if (running) View.VISIBLE else View.GONE
@@ -957,11 +1017,13 @@ class MainActivity : Activity() {
 
         txtHint.text = when {
             !prefs.volumePtt -> "Konuşmak için düğmeyi basılı tut"
+            keyOn -> "Düğmeyi ya da ses yükseltme tuşunu basılı tut\n" +
+                "Ekran kapalıyken de çalışır"
             svc.keyPttReady -> {
                 val n = svc.keyPttEvents
                 "Düğmeyi ya da ses yükseltme tuşunu basılı tut\n" +
                     if (n > 0) "Ekran kapalıyken de çalışıyor · $n olay"
-                    else "Ekran kapalıyken de çalışmalı — deneyip buraya bak"
+                    else "Ekran kapalıyken çalışmazsa ayarlardan erişilebilirliği aç"
             }
             else -> "Düğmeyi ya da ses yükseltme tuşunu basılı tut"
         }
