@@ -182,6 +182,22 @@ class AudioEngine(private val onFrame: (ByteArray, Int, Int, Int) -> Unit) {
         queues.getOrPut(senderId) { SenderQueue() }.offer(frame)
     }
 
+    /**
+     * Hazır PCM'i (bip) gönderenin kuyruğuna koyar. Sesle aynı kuyruğu
+     * kullanıyor: bitiş bipi böyle kendiliğinden son sözden sonra çalıyor.
+     */
+    fun enqueuePcm(senderId: Long, pcm: ShortArray) {
+        val q = queues.getOrPut(senderId) { SenderQueue() }
+        var off = 0
+        while (off < pcm.size) {
+            val n = minOf(FRAME_SAMPLES, pcm.size - off)
+            val frame = ShortArray(FRAME_SAMPLES)
+            System.arraycopy(pcm, off, frame, 0, n)
+            q.offer(frame)
+            off += n
+        }
+    }
+
     fun forget(senderId: Long) {
         queues.remove(senderId)
     }

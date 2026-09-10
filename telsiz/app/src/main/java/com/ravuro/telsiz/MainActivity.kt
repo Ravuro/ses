@@ -75,8 +75,8 @@ class MainActivity : Activity() {
     private lateinit var setupCard: View
     private lateinit var edtNick: EditText
     private lateinit var edtChannel: EditText
-    private lateinit var btnVolumePtt: View
-    private lateinit var volumeKnob: View
+    private lateinit var volumeToggle: Toggle
+    private lateinit var beepToggle: Toggle
 
     // canlı
     private lateinit var liveHero: View
@@ -136,7 +136,6 @@ class MainActivity : Activity() {
 
         edtNick.setText(prefs.nick)
         edtChannel.setText(prefs.channel.toString())
-        updateVolumeToggle()
     }
 
     override fun onStart() {
@@ -540,40 +539,80 @@ class MainActivity : Activity() {
         ))
         wrap.addView(nickWrap)
 
-        // Ses tuşu
-        val volCard = card().apply {
+        volumeToggle = toggleRow(
+            "Ses tuşuyla konuş",
+            "Ses yükseltme tuşunu basılı tut —\nekran kapalıyken de",
+            { prefs.volumePtt },
+            { prefs.volumePtt = !prefs.volumePtt }
+        )
+        wrap.addView(volumeToggle.row, marginTop(14))
+
+        beepToggle = toggleRow(
+            "Telsiz bipi",
+            "Konuşman bitince karşı taraf bip duyar",
+            { prefs.beep },
+            { prefs.beep = !prefs.beep }
+        )
+        wrap.addView(beepToggle.row, marginTop(10))
+
+        setupCard = wrap
+        return wrap
+    }
+
+    /** Aç/kapa anahtarı: iki ayar için de aynı görünüm. */
+    private inner class Toggle(
+        val row: View,
+        private val track: LinearLayout,
+        private val knob: View,
+        private val get: () -> Boolean
+    ) {
+        fun refresh() {
+            val on = get()
+            track.background = rounded(
+                if (on) 0xFF1B7F4E.toInt() else RAISED, 999,
+                if (on) 0xFF2C9E67.toInt() else LINE2
+            )
+            track.gravity = (if (on) Gravity.END else Gravity.START) or Gravity.CENTER_VERTICAL
+            knob.background = circle(if (on) GREEN else 0xFF3B4756.toInt())
+        }
+    }
+
+    private fun toggleRow(
+        title: String,
+        subtitle: String,
+        get: () -> Boolean,
+        toggle: () -> Unit
+    ): Toggle {
+        val cardView = card().apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(16), dp(15), dp(16), dp(15))
         }
-        val volText = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        volText.addView(TextView(this).apply {
-            text = "Ses tuşuyla konuş"
+        val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        texts.addView(TextView(this).apply {
+            text = title
             setTextColor(TEXT)
             textSize = 15f
             typeface = Fonts.ui(context)
         })
-        volText.addView(body("Ses yükseltme tuşunu basılı tut —\nekran kapalıyken de", 12f, DIM).apply {
-            setPadding(0, dp(3), 0, 0)
-        })
-        volCard.addView(volText, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        texts.addView(body(subtitle, 12f, DIM).apply { setPadding(0, dp(3), 0, 0) })
+        cardView.addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 
         val track = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(3), dp(3), dp(3), dp(3))
-            setOnClickListener {
-                prefs.volumePtt = !prefs.volumePtt
-                updateVolumeToggle()
-            }
         }
-        volumeKnob = View(this)
-        track.addView(volumeKnob, LinearLayout.LayoutParams(dp(24), dp(24)))
-        btnVolumePtt = track
-        volCard.addView(track, LinearLayout.LayoutParams(dp(50), dp(30)))
-        wrap.addView(volCard, marginTop(14))
+        val knob = View(this)
+        track.addView(knob, LinearLayout.LayoutParams(dp(24), dp(24)))
+        cardView.addView(track, LinearLayout.LayoutParams(dp(50), dp(30)))
 
-        setupCard = wrap
-        return wrap
+        val t = Toggle(cardView, track, knob, get)
+        cardView.setOnClickListener {
+            toggle()
+            t.refresh()
+        }
+        t.refresh()
+        return t
     }
 
     private fun stepButton(glyph: String, onClick: () -> Unit) = TextView(this).apply {
@@ -592,15 +631,6 @@ class MainActivity : Activity() {
         val next = (cur + delta).coerceIn(1, 999)
         edtChannel.setText(next.toString())
         edtChannel.setSelection(edtChannel.text.length)
-    }
-
-    private fun updateVolumeToggle() {
-        val on = prefs.volumePtt
-        btnVolumePtt.background = rounded(if (on) 0xFF1B7F4E.toInt() else RAISED, 999,
-            if (on) 0xFF2C9E67.toInt() else LINE2)
-        (btnVolumePtt as LinearLayout).gravity =
-            (if (on) Gravity.END else Gravity.START) or Gravity.CENTER_VERTICAL
-        volumeKnob.background = circle(if (on) GREEN else 0xFF3B4756.toInt())
     }
 
     private fun buildNetCard(): View {

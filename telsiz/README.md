@@ -186,6 +186,10 @@ cihazlara olduğu gibi iletir.
 - LAN tarafında hem multicast (`239.255.42.99:47771`) hem subnet broadcast
   kullanılır — router'ların ve hotspot'ların hangisini geçirdiği değişiyor.
 - Konuşurken hoparlör kapanır (yarı çift yönlü), böylece geri besleme olmaz.
+- Telsiz bipi: konuşmanın başında tek kısa ton, sonunda inen iki ton.
+  Ton ağdan geçmiyor, alıcıda üretiliyor (`Beep.kt`) — kodekten geçen bir
+  bip cızırtılı çıkardı ve ilk/son paket kaybolursa hiç duyulmazdı. Ağda
+  giden yalnızca "bip çal" işareti. Ayarlardan kapatılabilir.
 - Ağ arayüzleri 2.5 sn'de bir taranır; değişince UDP soketi yeniden kurulup
   multicast üyelikleri tazelenir.
 - Android 8.0 (API 26) ve üstü.

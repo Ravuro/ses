@@ -237,13 +237,30 @@ class TelsizService : Service() {
     // ---- bas-konuş ----
 
     fun startTx() {
-        engine?.startTx()
+        val eng = engine ?: return
+        if (eng.transmitting) return          // tuş ve dokunma aynı anda gelebilir
+        if (prefs.beep) sendBeep(Beep.START)
+        eng.startTx()
         updateNotification()
     }
 
     fun stopTx() {
-        engine?.stopTx()
+        val eng = engine ?: return
+        if (!eng.transmitting) return
+        eng.stopTx()
+        // Bitiş bipi sesten SONRA gönderiliyor; alıcıda aynı kuyruğa
+        // girdiği için kendiliğinden son sözün ardına düşüyor.
+        if (prefs.beep) sendBeep(Beep.END)
         updateNotification()
+    }
+
+    private val beepPayload = ByteArray(1)
+
+    private fun sendBeep(kind: Byte) {
+        synchronized(beepPayload) {
+            beepPayload[0] = kind
+            sendPacket(Packet.TYPE_BEEP, beepPayload, 1)
+        }
     }
 
     // ---- ağ ----
@@ -310,6 +327,14 @@ class TelsizService : Service() {
                     parsed.senderId, buf, parsed.payloadOff, parsed.payloadLen,
                     parsed.predictor, parsed.index
                 )
+            }
+            Packet.TYPE_BEEP -> {
+                val kind = if (parsed.payloadLen > 0) buf[parsed.payloadOff] else Beep.START
+                val p = peers.getOrPut(parsed.senderId) { Peer("?") }
+                p.lastSeen = now
+                // Başlangıç bipi konuşmanın habercisi; bitiş bipi değil.
+                if (kind == Beep.START) p.lastAudio = now
+                engine?.enqueuePcm(parsed.senderId, Beep.pcm(kind))
             }
             Packet.TYPE_PRESENCE -> {
                 val name = String(buf, parsed.payloadOff, parsed.payloadLen, Charsets.UTF_8)

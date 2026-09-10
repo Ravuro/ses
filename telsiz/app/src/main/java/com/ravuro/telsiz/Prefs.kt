@@ -31,7 +31,12 @@ class Prefs(ctx: Context) {
      */
     val relayUrl: String get() = DEFAULT_RELAY
 
-    /** Ses tuşuyla bas-konuş (uygulama ekrandayken). */
+    /** Konuşmanın başında ve sonunda karşı tarafta çalan telsiz bipi. */
+    var beep: Boolean
+        get() = sp.getBoolean("beep", true)
+        set(v) = sp.edit().putBoolean("beep", v).apply()
+
+    /** Ses tuşuyla bas-konuş. */
     var volumePtt: Boolean
         get() = sp.getBoolean("volumePtt", true)
         set(v) = sp.edit().putBoolean("volumePtt", v).apply()

@@ -28,6 +28,8 @@ object Packet {
     const val VERSION: Byte = 2
     const val TYPE_AUDIO: Byte = 1
     const val TYPE_PRESENCE: Byte = 2
+    /** Yükü tek bayt: 0 başlangıç bipi, 1 bitiş bipi. Ton alıcıda üretilir. */
+    const val TYPE_BEEP: Byte = 3
 
     class Parsed {
         var type: Byte = 0
