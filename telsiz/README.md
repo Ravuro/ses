@@ -178,6 +178,40 @@ atmak ya da Ayarlar'dan **Zorla durdur** demek. Android bunu "kullanıcı
 istemiyor" sayıyor, alarmları da siliyor ve uygulamayı elle açılana kadar
 durdurulmuş halde tutuyor. Bunu hiçbir kod aşamaz.
 
+### Sağlamlaştırma
+
+Ağdan gelen her bayt düşmanca kabul ediliyor: kanalı bilen herkes istediğini
+gönderebilir. Çözümleyici 500 000 rastgele ve düşmanca paketle sınandı
+(114 389'u başlığı geçip gerçekten çözümlemeye girdi) — tek çökme yok.
+
+Sınandıktan sonra kapatılan açıklar:
+
+- **Paket boyutu.** Yerel ağ paketi zaten tampona sığıyor ama röle kaydı
+  64 KB'a kadar uzunluk bildirebiliyordu; sınırsız bırakılırsa tek bir bozuk
+  kayıt yüz kilobaytlık dizi ayırtıyordu. Artık `MAX`ı aşan paket reddediliyor.
+- **Gönderen seli.** Rastgele kimliklerle paket üreten bir kaynak kişi
+  listesini ve belleği şişirebiliyordu. En çok 32 gönderen takip ediliyor;
+  yer dolunca en uzun süredir sesi çıkmayan kayıt düşüyor. Yeni geleni
+  reddetmek yanlış olurdu — sel, gerçek kişilerin duyulmasını engellerdi.
+  Ölçüm: 25 000 sel kaydına karşı düzenli yoklama gönderen gerçek kişi bir
+  kez bile düşmedi.
+- **Pencere sızıntısı.** Şifresini çözemediğimiz paketler de tekilleştirmeden
+  geçip kayıt açıyordu ama hiçbir zaman kişi listesine girmediği için
+  temizlenmiyordu. Aynı kanal numarasını farklı parolayla kullanan bir grup
+  varsa liste sessizce büyüyordu. Kayıtlar artık yaşlarına göre de süpürülüyor.
+- **Ad.** Karşı taraftan gelen ad artık kırpılıyor ve kontrol karakterleri
+  ayıklanıyor: satır sonu taşıyan bir ad kişi listesini ve tanı metnini
+  dağıtıyordu.
+
+### Ses yolu ölünce
+
+`AudioTrack.write()` negatif dönerse ses çıkışı ölmüş demektir. Eskiden
+döngü dönmeye devam ediyordu: `write` artık bloklamadığı için saniyede on
+binlerce tur atıp işlemciyi yakıyor, ses yine gelmiyordu — üstelik nabız da
+"iş parçacığı yaşıyor" diye baktığı için bunu göremiyordu. Artık döngü
+çıkıyor, nabız motoru yeniden kuruyor. Mikrofonda üst üste okuma hatası
+aynı şekilde işleniyor.
+
 ### Çökme kaydı
 
 Uygulama sahada, elde, bilgisayarsız kullanılıyor: çökünce geriye "kapandı"

@@ -19,12 +19,22 @@ class SeqWindow {
         const val RESTART_MISSES = 3
     }
 
+    /**
+     * Bu pencereye en son ne zaman paket geldi — kabul edilmiş olsun ya da
+     * olmasın. Şifre çözemediğimiz göndereni hiç tanımıyoruz ama penceresi
+     * yine de açılıyor; kim olduğunu bilmediğimiz kayıtları ancak yaşlarına
+     * bakarak temizleyebiliyoruz.
+     */
+    @Volatile var touchedAt = System.currentTimeMillis()
+        private set
+
     private var highest = -1
     private var mask = 0L
     private var lastAcceptAt = 0L
     private var misses = 0
 
     fun accept(seq: Int, now: Long = System.currentTimeMillis()): Boolean {
+        touchedAt = now
         if (highest < 0) {
             reset(seq, now)
             return true

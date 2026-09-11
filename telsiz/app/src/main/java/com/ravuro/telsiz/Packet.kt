@@ -115,7 +115,10 @@ object Packet {
     }
 
     fun parse(buf: ByteArray, len: Int, into: Parsed): Boolean {
-        if (len < HEADER) return false
+        // Üst sınır: yerel ağ paketi zaten [MAX] tamponuna sığıyor ama röle
+        // kaydı 64 KB'a kadar uzunluk bildirebiliyor. Sınırsız bırakılırsa
+        // tek bir bozuk kayıt yüz kilobaytlık dizi ayırtıyor.
+        if (len < HEADER || len > MAX) return false
         if (buf[0] != 'T'.code.toByte() || buf[1] != 'L'.code.toByte() ||
             buf[2] != 'S'.code.toByte() || buf[3] != 'Z'.code.toByte()
         ) return false

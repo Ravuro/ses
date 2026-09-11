@@ -297,6 +297,10 @@ class AudioEngine(private val onFrame: (ByteArray, Int, Int, Int) -> Unit) {
     private fun captureLoop() {
         val pcm = ShortArray(FRAME_SAMPLES)
         val enc = ByteArray(FRAME_SAMPLES / 2 + 8)
+        // Üst üste okuma hatası mikrofonun elimizden gittiğini gösteriyor.
+        // Sonsuza kadar denemek yerine çıkıyoruz ki nabız motoru yeniden
+        // kursun; yoksa telsiz açık görünüp hiç ses göndermiyor.
+        var readFails = 0
         while (running) {
             if (!transmitting) {
                 try { Thread.sleep(20) } catch (_: InterruptedException) { return }
@@ -308,6 +312,7 @@ class AudioEngine(private val onFrame: (ByteArray, Int, Int, Int) -> Unit) {
             } catch (_: Exception) {
                 -1
             }
+            if (r > 0) readFails = 0
             if (r > 0 && transmitting) {
                 applyGain(pcm, r)
                 // Paket, kodlamadan ÖNCEKİ durumu taşımalı ki karşı taraf
@@ -317,6 +322,12 @@ class AudioEngine(private val onFrame: (ByteArray, Int, Int, Int) -> Unit) {
                 val n = Adpcm.encode(pcm, r, enc, encState)
                 onFrame(enc, n, p0, i0)
             } else if (r <= 0) {
+                // Yalnızca konuşurken sayıyoruz: beklerken sıfır dönmesi
+                // olağan, hata değil.
+                if (r < 0 && transmitting && ++readFails >= 50) {
+                    lastError = "mikrofon okunamıyor ($r)"
+                    return
+                }
                 try { Thread.sleep(10) } catch (_: InterruptedException) { return }
             }
         }
@@ -404,7 +415,17 @@ class AudioEngine(private val onFrame: (ByteArray, Int, Int, Int) -> Unit) {
             try {
                 // write() bloklayarak döngüyü gerçek zamana göre hızlandırıyor;
                 // ayrıca uyumaya gerek kalmıyor.
-                track?.write(out, 0, FRAME_SAMPLES) ?: return
+                val wrote = track?.write(out, 0, FRAME_SAMPLES) ?: return
+                if (wrote < 0) {
+                    // Negatif dönüş AudioTrack'in öldüğü anlamına geliyor
+                    // (ERROR_DEAD_OBJECT ve arkadaşları). Döngüyü sürdürmek
+                    // en kötü seçenek: write artık bloklamadığı için döngü
+                    // saniyede on binlerce tur atıp işlemciyi yakıyor ve ses
+                    // yine gelmiyor. Çıkıyoruz — [alive] düşünce nabız motoru
+                    // yeniden kuruyor.
+                    lastError = "ses çıkışı düştü ($wrote)"
+                    return
+                }
             } catch (_: Exception) {
                 return
             }

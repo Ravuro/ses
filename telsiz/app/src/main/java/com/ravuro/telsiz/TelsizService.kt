@@ -40,6 +40,20 @@ class TelsizService : Service() {
          */
         private const val RELAY_STALE_MS = 75_000L
 
+        /**
+         * Aynı anda takip edilen en çok gönderen. Telsiz kanalında bu kadar
+         * kişi zaten olmuyor; sınır, rastgele kimliklerle sel yaratan bozuk
+         * ya da kötü niyetli bir kaynağın listeyi ve belleği şişirmesini
+         * engelliyor.
+         */
+        private const val MAX_SENDERS = 32
+
+        /** Ağdan gelen adın en çok kaç karakteri kullanılıyor. */
+        private const val NICK_MAX = 24
+
+        /** Tanımadığımız gönderenin penceresi bu kadar sessizlikten sonra silinir. */
+        private const val WINDOW_TTL_MS = 60_000L
+
         @Volatile var isRunning = false
 
         /**
@@ -210,18 +224,25 @@ class TelsizService : Service() {
         // Sıra numarası sıfırdan başlamıyor: şifrelemede nonce buna bağlı.
         seq = prefs.nextSeqBase()
 
+        // Bildirim her şeyden önce.
+        //
+        // startForegroundService ile başlatılan servis beş saniye içinde
+        // startForeground çağırmak zorunda; çağırmadan durursa sistem
+        // uygulamayı çökertiyor. İzin kontrolü bunun önüne geçerse —
+        // kullanıcı mikrofon iznini sonradan geri aldığında ya da nabız
+        // servisi izinsiz ayağa kaldırdığında tam olarak bu oluyor —
+        // sözleşme ihlal edilmiş oluyor. Önce bildirimi kur, sonra dur.
+        createNotificationChannel()
+        startForegroundCompat()
+
         if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
             != android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
-            // Android 14+ mikrofon tipli foreground servisi izinsiz başlatınca
-            // SecurityException atıyor; çökmek yerine hatayı bildir.
             startError = "mikrofon izni verilmemiş"
+            stopForegroundCompat()
             stopSelf()
             return
         }
-
-        createNotificationChannel()
-        startForegroundCompat()
 
         try {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -512,6 +533,15 @@ class TelsizService : Service() {
         // paket yine herkese ulaşıyor.
         if (parsed.target != 0L && parsed.target != deviceId) return
 
+        // Sel koruması. Yeni gönderen gelince yer yoksa en uzun süredir
+        // sesi çıkmayan kayıt düşüyor.
+        //
+        // Yeni geleni reddetmek yanlış olurdu: rastgele kimlikler üreten bir
+        // kaynak otuz iki yeri doldurup gerçek kişilerin duyulmasını
+        // engellerdi. En eskiyi düşürmek bunu tersine çeviriyor — düzenli
+        // yoklama gönderen gerçek kişi hep taze, sel kayıtları hep eski.
+        if (!windows.containsKey(parsed.senderId)) evictIfFull()
+
         // Aynı paket hem LAN'dan hem relay'den gelebilir.
         val w = windows.getOrPut(parsed.senderId) { SeqWindow() }
         val fresh = synchronized(w) { w.accept(parsed.seq) }
@@ -574,12 +604,50 @@ class TelsizService : Service() {
                 }
             }
             Packet.TYPE_PRESENCE -> {
-                val name = String(data, off, len2, Charsets.UTF_8)
+                val name = cleanNick(data, off, len2)
                 val p = peers.getOrPut(parsed.senderId) { Peer(parsed.senderId, name) }
                 p.nick = name
                 p.lastSeen = now
             }
         }
+    }
+
+    /** En eski pencereyi düşürerek yeni gönderene yer açar. */
+    private fun evictIfFull() {
+        while (windows.size >= MAX_SENDERS) {
+            var oldestId = 0L
+            var oldestAt = Long.MAX_VALUE
+            for (e in windows.entries) {
+                if (e.value.touchedAt < oldestAt) {
+                    oldestAt = e.value.touchedAt
+                    oldestId = e.key
+                }
+            }
+            // Boşalmışsa (başka bir iş parçacığı sildiyse) döngüden çık.
+            if (windows.remove(oldestId) == null) return
+            peers.remove(oldestId)
+            engine?.forget(oldestId)
+        }
+    }
+
+    /**
+     * Ağdan gelen adı görüntülenebilir hâle getirir.
+     *
+     * Ad karşı taraftan geliyor, yani ona güvenilmez: uzunluğu da içeriği de
+     * istenen her şey olabilir. Satır sonu ya da kontrol karakteri taşıyan
+     * bir ad kişi listesini ve tanı metnini dağıtır, çok uzun olanı ekranı
+     * taşırır.
+     */
+    private fun cleanNick(data: ByteArray, off: Int, len: Int): String {
+        val raw = String(data, off, minOf(len, 128), Charsets.UTF_8)
+        val sb = StringBuilder(NICK_MAX)
+        for (ch in raw) {
+            if (sb.length >= NICK_MAX) break
+            // Kontrol karakterleri (satır sonu dahil) düşüyor.
+            if (ch.code >= 32 && ch.code != 127) sb.append(ch)
+        }
+        val out = sb.toString().trim()
+        return if (out.isEmpty()) "?" else out
     }
 
     private fun forward(buf: ByteArray, len: Int, from: Source) {
@@ -700,6 +768,19 @@ class TelsizService : Service() {
                 windows.remove(e.key)
                 it.remove()
             }
+        }
+
+        // Pencereleri ayrıca yaşlarına göre süpür.
+        //
+        // Her pencere bir kişiye karşılık gelmiyor: şifresini çözemediğimiz
+        // paketler de tekilleştirmeden geçiyor ve pencere açıyor. Aynı kanal
+        // numarasını farklı parolayla kullanan bir grup varsa o kayıtlar
+        // [peers] içine hiç girmiyor, dolayısıyla yukarıdaki temizlik onlara
+        // dokunmuyordu ve liste sessizce büyüyordu.
+        val wi = windows.entries.iterator()
+        while (wi.hasNext()) {
+            val e = wi.next()
+            if (now - e.value.touchedAt > WINDOW_TTL_MS) wi.remove()
         }
     }
 

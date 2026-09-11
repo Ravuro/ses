@@ -362,10 +362,15 @@ class MainActivity : Activity() {
                             toast("Önce BAŞLAT'a bas")
                         } else {
                             v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                            // Hedef henüz belli değil: ses bekletiliyor.
-                            service?.startTx(pendingTarget = true)
-                            openPicker()
-                            armSettle()
+                            // Seçilecek kimse yoksa bekletmenin anlamı yok:
+                            // hedef zaten herkes. Boşuna bekletmek konuşmanın
+                            // ilk 300 ms'sini geciktiriyordu.
+                            if (openPicker()) {
+                                service?.startTx(pendingTarget = true)
+                                armSettle()
+                            } else {
+                                service?.startTx()
+                            }
                             refresh()
                         }
                         true
@@ -433,9 +438,11 @@ class MainActivity : Activity() {
         return (ev.rawX - loc[0]) to (ev.rawY - loc[1])
     }
 
-    private fun openPicker() {
-        val svc = service ?: return
+    /** Seçilecek kimse varsa halkayı açar; açtıysa true döner. */
+    private fun openPicker(): Boolean {
+        val svc = service ?: return false
         val items = svc.peerList().map { TargetPicker.Item(it.id, it.nick) }
+        if (items.isEmpty()) return false
         picker.getLocationOnScreen(loc)
         val px = loc[0]
         val py = loc[1]
@@ -445,6 +452,7 @@ class MainActivity : Activity() {
             (loc[0] - px + ptt.width / 2).toFloat(),
             (loc[1] - py + ptt.height / 2).toFloat()
         )
+        return true
     }
 
     /**
@@ -764,6 +772,32 @@ class MainActivity : Activity() {
             // Ayraçlarla birlikte 19 karakter.
             filters = arrayOf(android.text.InputFilter.LengthFilter(Invite.LENGTH + 3))
         }
+        c.addView(edtInvite, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+
+        txtInviteState = body("", 12f, DIM).apply { setPadding(0, dp(10), 0, 0) }
+        c.addView(txtInviteState)
+
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(14), 0, 0)
+        }
+        val btnNew = outlineButton("YENİ KANAL", GREEN, 0xFF1E4A36.toInt()) { newChannel() }
+        row.addView(btnNew, LinearLayout.LayoutParams(0, dp(48), 1f))
+        btnShare = outlineButton("PAYLAŞ", TEXT2, LINE2) {
+            val inv = Invite.parse(edtInvite.text.toString())
+            if (inv == null) toast("Önce geçerli bir kod gerekiyor") else shareInvite(inv.code)
+        }
+        row.addView(btnShare, LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+            leftMargin = dp(9)
+        })
+        c.addView(row)
+
+        // Dinleyici en sonda bağlanıyor: [refreshInvite] durum satırına ve
+        // paylaş düğmesine dokunuyor, ikisi de yukarıda kuruluyor. Daha
+        // erken bağlanırsa alana yazılan ilk harf henüz var olmayan bir
+        // görünüme çarpar.
         edtInvite.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
             override fun onTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
@@ -786,27 +820,6 @@ class MainActivity : Activity() {
                 refreshInvite()
             }
         })
-        c.addView(edtInvite, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ))
-
-        txtInviteState = body("", 12f, DIM).apply { setPadding(0, dp(10), 0, 0) }
-        c.addView(txtInviteState)
-
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, dp(14), 0, 0)
-        }
-        val btnNew = outlineButton("YENİ KANAL", GREEN, 0xFF1E4A36.toInt()) { newChannel() }
-        row.addView(btnNew, LinearLayout.LayoutParams(0, dp(48), 1f))
-        btnShare = outlineButton("PAYLAŞ", TEXT2, LINE2) {
-            val inv = Invite.parse(edtInvite.text.toString())
-            if (inv == null) toast("Önce geçerli bir kod gerekiyor") else shareInvite(inv.code)
-        }
-        row.addView(btnShare, LinearLayout.LayoutParams(0, dp(48), 1f).apply {
-            leftMargin = dp(9)
-        })
-        c.addView(row)
 
         c.addView(body(
             "Kanala yalnızca kodu bilen girebilir; kodu bilmeyen numarayı " +

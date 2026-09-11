@@ -31,22 +31,31 @@ class KeyService : AccessibilityService() {
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
         if (event.keyCode != KeyEvent.KEYCODE_VOLUME_UP) return false
+
+        // Bırakma her koşulda işleniyor.
+        //
+        // Önce "telsiz açık mı" diye bakılırsa, basılıyken telsiz durdurulan
+        // (ya da ayarı kapatılan) durumda bırakma olayı erken dönüyor ve
+        // [holding] sonsuza kadar açık kalıyordu. Bir sonraki basış da
+        // yutuluyordu: tuş, bir tam basış boyunca ölü kalıyordu.
+        if (event.action == KeyEvent.ACTION_UP) {
+            val wasHolding = holding
+            holding = false
+            if (wasHolding) {
+                TelsizService.keyUp()
+                return true
+            }
+            return TelsizService.isRunning && Prefs(this).volumePtt
+        }
+
         if (!TelsizService.isRunning) return false
         if (!Prefs(this).volumePtt) return false
 
-        when (event.action) {
-            KeyEvent.ACTION_DOWN -> {
-                if (event.repeatCount == 0 && !holding) {
-                    holding = true
-                    TelsizService.keyDown()
-                }
-            }
-            KeyEvent.ACTION_UP -> {
-                if (holding) {
-                    holding = false
-                    TelsizService.keyUp()
-                }
-            }
+        if (event.action == KeyEvent.ACTION_DOWN &&
+            event.repeatCount == 0 && !holding
+        ) {
+            holding = true
+            TelsizService.keyDown()
         }
         // Olayı tüketiyoruz: telsiz açıkken ses yükseltme tuşu bas-konuş
         // demek, ses ayarı değil. Kapalıyken yukarıda false dönüyoruz.
