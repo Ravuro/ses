@@ -1,0 +1,110 @@
+name: Instagram günlük paylaşım
+
+# Türkiye saati UTC+3'tür (yaz saati uygulanmaz), bu yüzden UTC karşılıkları:
+#   08:00 TSİ -> 05:00 UTC   |   15:00 TSİ -> 12:00 UTC   |   20:00 TSİ -> 17:00 UTC
+# Not: GitHub Actions zamanlayıcısı yoğunlukta birkaç dakika gecikebilir.
+on:
+  schedule:
+    - cron: '0 5 * * *'
+    - cron: '0 12 * * *'
+    - cron: '0 17 * * *'
+  workflow_dispatch:
+    inputs:
+      dilim:
+        description: 'Paylaşım vakti'
+        type: choice
+        options: [sabah, oglen, aksam]
+        default: sabah
+      tema:
+        description: 'Sözün teması (boş bırakılabilir)'
+        type: string
+        default: ''
+      sadece_uret:
+        description: 'Sadece görseli üret, paylaşma'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instagram-paylasim
+  cancel-in-progress: false
+
+jobs:
+  paylas:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: otomasyon
+
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Python kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: otomasyon/requirements.txt
+
+      - name: Bağımlılıkları yükle
+        run: pip install -r requirements.txt
+
+      - name: Git kimliği
+        run: |
+          git config user.name  "instagram-otomasyon"
+          git config user.email "actions@github.com"
+
+      - name: Paylaşım vaktini belirle
+        id: vakit
+        run: |
+          case "${{ github.event.schedule }}" in
+            "0 5 * * *")  dilim=sabah ;;
+            "0 12 * * *") dilim=oglen ;;
+            "0 17 * * *") dilim=aksam ;;
+            *)            dilim="${{ inputs.dilim || 'sabah' }}" ;;
+          esac
+          echo "dilim=$dilim" >> "$GITHUB_OUTPUT"
+          echo "Vakit: $dilim"
+
+      - name: Söz üret ve paylaş
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          IG_KULLANICI_ID:   ${{ secrets.IG_KULLANICI_ID }}
+          IG_ERISIM_TOKEN:   ${{ secrets.IG_ERISIM_TOKEN }}
+          PAYLASIM_DALI:     ${{ github.ref_name }}
+        run: |
+          if [ "${{ inputs.sadece_uret }}" = "true" ]; then
+            python calistir.py uret   --dilim "${{ steps.vakit.outputs.dilim }}" --tema "${{ inputs.tema }}"
+          else
+            python calistir.py paylas --dilim "${{ steps.vakit.outputs.dilim }}" --tema "${{ inputs.tema }}"
+          fi
+
+      - name: Geçmişi kaydet
+        if: always()
+        run: |
+          git add veri/gecmis.json cikti || true
+          if git diff --staged --quiet; then
+            echo "Kaydedilecek değişiklik yok."
+          else
+            git commit -m "Paylaşım geçmişi güncellendi (${{ steps.vakit.outputs.dilim }})"
+            for deneme in 1 2 3 4; do
+              git pull --rebase origin "${{ github.ref_name }}" && \
+              git push origin "HEAD:${{ github.ref_name }}" && break
+              echo "Gönderim başarısız, tekrar deneniyor ($deneme)..."
+              sleep $((2 ** deneme))
+            done
+          fi
+
+      - name: Üretilen görseli sakla
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paylasim-${{ steps.vakit.outputs.dilim }}
+          path: otomasyon/cikti/*.jpg
+          if-no-files-found: ignore
+          retention-days: 14

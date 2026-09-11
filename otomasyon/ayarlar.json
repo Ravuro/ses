@@ -1,0 +1,58 @@
+{
+  "gorsel": {
+    "genislik": 1080,
+    "yukseklik": 1350,
+    "arkaplan": "varliklar/arkaplan.jpg",
+    "metin_rengi": "#2f2620",
+    "cizim_rengi": "#4a3a2c",
+    "imza_rengi": "#5a4838",
+    "imza": "a.kadiruzn",
+    "metin_font": "",
+    "imza_font": "",
+    "metin_boyutu": 62,
+    "imza_boyutu": 46,
+    "satir_araligi": 1.32,
+    "metin_genislik_orani": 0.78,
+    "cizim_boyutu": 380,
+    "cizim_merkez_y": 0.36,
+    "metin_baslangic_y": 0.55,
+    "imza_y": 0.8
+  },
+  "soz": {
+    "model": "claude-opus-5",
+    "maks_karakter": 115,
+    "uslup": "Sade, derin, edebi bir Türkçe. Klişe motivasyon cümlelerinden ve İngilizce kelimelerden uzak dur. Tek cümle, en fazla iki kısa cümle.",
+    "temalar": [
+      "yalnızlık", "vazgeçiş", "umut", "zaman", "özlem", "olgunlaşmak",
+      "sabır", "veda", "yeniden başlamak", "kendine dönmek", "susmak",
+      "gitmek", "bekleyiş", "huzur", "kırgınlık", "kabulleniş"
+    ],
+    "gunluk_ton": {
+      "sabah": "Güne başlarken okunacak; sakin, toparlayıcı, hafif umutlu.",
+      "oglen": "Günün ortasında okunacak; düşündürücü, gözlem gibi, dingin.",
+      "aksam": "Gece okunacak; içe dönük, melankolik, kapanış hissi veren."
+    }
+  },
+  "paylasim": {
+    "saat_dilimi": "Europe/Istanbul",
+    "saatler": { "sabah": "08:00", "oglen": "15:00", "aksam": "20:00" },
+    "aciklama_sablonu": "{soz}\n\n— {imza}\n\n{etiketler}",
+    "etiketler": [
+      "#söz", "#sözler", "#edebiyat", "#şiir", "#anlamlısözler",
+      "#duygusalsözler", "#kitapalıntıları", "#günlük", "#hüzün", "#alıntı"
+    ],
+    "etiket_sayisi": 8
+  },
+  "barindirma": {
+    "tur": "github",
+    "repo": "Ravuro/ses",
+    "dal": "claude/instagram-daily-automation-kawu5j",
+    "klasor": "otomasyon/cikti",
+    "taban_url": ""
+  },
+  "instagram": {
+    "api_surumu": "v21.0",
+    "yayin_bekleme_sn": 5,
+    "maks_deneme": 12
+  }
+}
