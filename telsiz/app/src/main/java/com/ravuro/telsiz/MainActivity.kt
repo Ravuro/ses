@@ -90,6 +90,7 @@ class MainActivity : Activity() {
     private lateinit var txtLock: TextView
     private lateinit var volumeToggle: Toggle
     private lateinit var beepToggle: Toggle
+    private lateinit var exclusiveToggle: Toggle
 
     // canlı
     private lateinit var liveHero: View
@@ -1009,6 +1010,14 @@ class MainActivity : Activity() {
             { prefs.volumePtt = !prefs.volumePtt }
         )
         wrap.addView(volumeToggle.row, marginTop(14))
+
+        exclusiveToggle = toggleRow(
+            "Diğer uygulamaları sustur",
+            "Kapalıyken müzik/video sadece biri\nkonuşurken kısılır, sonra devam eder",
+            { prefs.exclusiveAudio },
+            { prefs.exclusiveAudio = !prefs.exclusiveAudio }
+        )
+        wrap.addView(exclusiveToggle.row, marginTop(10))
 
         beepToggle = toggleRow(
             "Telsiz bipi",

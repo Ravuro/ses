@@ -203,6 +203,35 @@ Sınandıktan sonra kapatılan açıklar:
   ayıklanıyor: satır sonu taşıyan bir ad kişi listesini ve tanı metnini
   dağıtıyordu.
 
+### Telsiz açıkken başka uygulamaların susması
+
+Telsiz arkaplanda açıkken Instagram, YouTube, müzik — hiçbiri ses
+çıkaramıyordu. Sebebi tek satırdı: oturum başında `AUDIOFOCUS_GAIN` alınıp
+telsiz kapanana kadar bırakılmıyordu. Odak, "sesin sahibi benim" demek.
+
+Odak, ekran kapalıyken ses tuşunun bize gelmesi için alınmıştı. Ama gün
+boyu açık duran bir telsizin bütün telefonun sesini rehin alması kabul
+edilemez bir bedel.
+
+Artık varsayılan **kibar**: odak yalnızca gerçekten ses varken, "kısarak
+paylaş" kipinde alınıyor ve ses bittikten 4 saniye sonra bırakılıyor. Karşı
+taraf konuşurken müzik kısılıyor, sonra kendiliğinden geri geliyor.
+
+Kurulumdaki **Diğer uygulamaları sustur** anahtarı eski davranışı geri
+getiriyor: bedeli diğer uygulamaların susması, karşılığı ekran kapalıyken
+ses tuşunun daha güvenilir çalışması.
+
+İki uçta da doğru davranması gerekiyordu ve ikinci uç daha incelikli:
+konuşma aralarında odağı bırakmak, müziği her cümle arasında açıp kapatmak
+demekti — tek uzun kesintiden çok daha rahatsız edici. Gerçek bir sohbet
+simüle edildi (2 sn konuşma, 1,5 sn boşluk, on iki tur): odak bir kez
+alındı, aralarda hiç düşmedi, sohbet bitince bırakıldı.
+
+> Bir önceki sürümde tıkanma onarımıyla birlikte gelen "odağı kaybettiysen
+> geri iste" kuralı bu sorunu **artırıyordu**: telsiz sessizken bile üç
+> saniyede bir odağı geri alıyor, karşı tarafın müziğini kesiyordu. O kural
+> artık yalnızca sürekli kipte geçerli.
+
 ### Ses birikip sonra boşalıyorsa
 
 Sahadan gelen en öğretici rapor şuydu: arkaplanda konuşanın sesi gelmiyor,

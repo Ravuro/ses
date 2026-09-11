@@ -84,6 +84,23 @@ class Prefs(ctx: Context) {
         get() = sp.getString("crash", "") ?: ""
         set(v) = sp.edit().putString("crash", v).apply()
 
+    /**
+     * Telsiz, ses odağını sürekli elinde tutsun mu.
+     *
+     * Tutarsa diğer uygulamalar (Instagram, YouTube, müzik) telsiz açık
+     * olduğu sürece hiç ses çıkaramıyor. Gün boyu açık duran bir telsiz
+     * için bu kabul edilemez, o yüzden varsayılan kapalı: odak yalnızca
+     * biri konuşurken kısa süre alınıyor, karşı taraf kısılıp sonra devam
+     * ediyor.
+     *
+     * Açılırsa telsiz sesin tek sahibi oluyor. Bedeli diğer uygulamaların
+     * susması, karşılığı ekran kapalıyken ses tuşunun daha güvenilir
+     * çalışması.
+     */
+    var exclusiveAudio: Boolean
+        get() = sp.getBoolean("exclusiveAudio", false)
+        set(v) = sp.edit().putBoolean("exclusiveAudio", v).apply()
+
     /** Konuşmanın başında ve sonunda karşı tarafta çalan telsiz bipi. */
     var beep: Boolean
         get() = sp.getBoolean("beep", true)

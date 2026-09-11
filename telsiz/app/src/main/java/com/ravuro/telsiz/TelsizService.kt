@@ -72,6 +72,13 @@ class TelsizService : Service() {
         private const val AUDIO_FIX_MIN_MS = 5_000L
         private const val AUDIO_FIX_MAX_MS = 60_000L
 
+        /**
+         * Ses bittikten bu kadar sonra odak bırakılıyor. Kısa tutmak
+         * karşı tarafın müziğini konuşmalar arasında açıp kapatır; uzun
+         * tutmak telsizi gereksiz yere sesin sahibi yapar.
+         */
+        private const val FOCUS_IDLE_MS = 4_000L
+
         @Volatile var isRunning = false
 
         /**
@@ -167,6 +174,7 @@ class TelsizService : Service() {
     @Volatile var focusChanges = 0
     @Volatile var lostFocusAt = 0L
     @Volatile var audioStallFixes = 0
+    @Volatile private var lastAudioAt = 0L
     private var audioFixAt = 0L
     private var audioFixWait = AUDIO_FIX_MIN_MS
 
@@ -217,7 +225,11 @@ class TelsizService : Service() {
     val replayAvailable: Boolean get() = engine?.replayAvailable == true
     val replaySeconds: Int get() = engine?.replaySeconds ?: 0
 
-    fun replayLast(): Boolean = engine?.replayLast() == true
+    /** Tekrar dinletmek de ses çalmak: odağı kısa süre almamız gerekiyor. */
+    fun replayLast(): Boolean {
+        noteAudioActivity()
+        return engine?.replayLast() == true
+    }
     val transmitting: Boolean get() = engine?.transmitting == true
 
     private val txBuf = ByteArray(Packet.MAX)
@@ -327,7 +339,10 @@ class TelsizService : Service() {
             null
         }
 
-        requestAudioFocus()
+        focusRequest = buildFocusRequest()
+        // Kibar kipte odak baştan alınmıyor: ses gelene kadar diğer
+        // uygulamalar rahat çalsın.
+        if (prefs.exclusiveAudio) requestAudioFocus()
 
         // Ekran kapalıyken ses tuşunu duyabilmek için medya oturumu.
         if (prefs.volumePtt) {
@@ -374,6 +389,7 @@ class TelsizService : Service() {
         keyPtt?.stop()
         keyPtt = null
         abandonAudioFocus()
+        focusRequest = null
         engine?.stop()
         engine = null
         direct?.stop()
@@ -451,6 +467,7 @@ class TelsizService : Service() {
             targetPending = pendingTarget
             currentTarget = 0L
         }
+        noteAudioActivity()
         if (prefs.beep) sendBeep(Beep.START)
         eng.startTx()
         updateNotification()
@@ -470,40 +487,74 @@ class TelsizService : Service() {
     }
 
     /**
-     * Ses odağı. Yalnız nezaket değil: Android ses tuşlarını odağı elinde
-     * tutan uygulamanın medya oturumuna yönlendiriyor, dolayısıyla ekran
-     * kapalıyken bas-konuşun çalışması buna bağlı. Odak alındığında çalan
-     * müzik duruyor — telsiz açıkken beklenen davranış.
+     * Ses odağı.
+     *
+     * Eskiden oturum başında AUDIOFOCUS_GAIN alınıp telsiz kapanana kadar
+     * bırakılmıyordu. Bunun bedeli çok ağırmış: telsiz arkaplanda açıkken
+     * Instagram, YouTube, müzik — hiçbiri ses çıkaramıyordu. Gün boyu açık
+     * duran bir telsiz için kabul edilemez.
+     *
+     * Artık varsayılan kibar: odak yalnızca gerçekten ses varken, "kısarak
+     * paylaş" kipinde alınıyor ve ses bitince birkaç saniye sonra
+     * bırakılıyor. Karşı taraf konuşurken müzik kısılıyor, sonra kendiliğinden
+     * geri geliyor.
+     *
+     * Sürekli odak isteyen için ayar duruyor ([Prefs.exclusiveAudio]):
+     * karşılığı ekran kapalıyken ses tuşunun daha güvenilir çalışması,
+     * bedeli diğer uygulamaların susması.
      */
+    private fun buildFocusRequest(): AudioFocusRequest {
+        val gain =
+            if (prefs.exclusiveAudio) AudioManager.AUDIOFOCUS_GAIN
+            else AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+        return AudioFocusRequest.Builder(gain)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+            .setWillPauseWhenDucked(false)
+            // Dinleyici boştu: odağı kaybettiğimizi fark bile etmiyorduk.
+            .setOnAudioFocusChangeListener { change ->
+                hasFocus = change == AudioManager.AUDIOFOCUS_GAIN
+                focusChanges++
+                if (!hasFocus) lostFocusAt = System.currentTimeMillis()
+            }
+            .build()
+    }
+
+    /** Ses var: odağı al (yoksa) ve etkinlik damgasını tazele. */
+    private fun noteAudioActivity() {
+        lastAudioAt = System.currentTimeMillis()
+        if (!hasFocus) requestAudioFocus()
+    }
+
     private fun requestAudioFocus() {
         try {
             val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .build()
-                )
-                .setWillPauseWhenDucked(false)
-                // Dinleyici boştu: odağı bir kez alıp bırakıyorduk ve
-                // kaybettiğimizde haberimiz bile olmuyordu. Odak gidince
-                // bazı cihazlar çıkışı durduruyor; ses kuyrukta birikiyor.
-                .setOnAudioFocusChangeListener { change ->
-                    hasFocus = change == AudioManager.AUDIOFOCUS_GAIN
-                    focusChanges++
-                    if (!hasFocus) lostFocusAt = System.currentTimeMillis()
-                }
-                .build()
-            hasFocus = am.requestAudioFocus(req) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-            focusRequest = req
+            val req = focusRequest ?: buildFocusRequest().also { focusRequest = it }
+            hasFocus = am.requestAudioFocus(req) ==
+                AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         } catch (_: Exception) {
         }
     }
 
+    /**
+     * Kibar kipte ses bittikten sonra odağı bırak ki karşı tarafın müziği
+     * geri gelsin. Sürekli kipte hiç bırakılmıyor.
+     */
+    private fun releaseFocusIfIdle() {
+        if (prefs.exclusiveAudio || !hasFocus) return
+        if (engine?.transmitting == true) return
+        if (System.currentTimeMillis() - lastAudioAt < FOCUS_IDLE_MS) return
+        abandonAudioFocus()
+    }
+
     private fun abandonAudioFocus() {
-        val req = focusRequest ?: return
-        focusRequest = null
+        val req = focusRequest
+        hasFocus = false
+        if (req == null) return
         try {
             val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
             am.abandonAudioFocusRequest(req)
@@ -656,6 +707,7 @@ class TelsizService : Service() {
                     it.lastAudio = now
                 }
                 if (!muted.contains(parsed.senderId)) {
+                    noteAudioActivity()
                     engine?.enqueue(
                         parsed.senderId, data, off, len2,
                         parsed.predictor, parsed.index
@@ -669,6 +721,7 @@ class TelsizService : Service() {
                 // Başlangıç bipi konuşmanın habercisi; bitiş bipi değil.
                 if (kind == Beep.START) p.lastAudio = now
                 if (!muted.contains(parsed.senderId)) {
+                    noteAudioActivity()
                     engine?.enqueuePcm(parsed.senderId, Beep.pcm(kind))
                 }
             }
@@ -695,9 +748,10 @@ class TelsizService : Service() {
         val eng = engine ?: return
         if (eng.transmitting) return
 
-        // Odak kaybedildiyse geri iste. Kaybı fark etmek bile eskiden
-        // mümkün değildi.
-        if (!hasFocus) requestAudioFocus()
+        // Odağı burada zorla geri almıyoruz. Almak, karşı tarafın müziğini
+        // üç saniyede bir kesmek demekti — telsiz sessizken bile. Odak
+        // yalnızca gerçekten ses geldiğinde alınıyor; boşta bırakılıyor.
+        if (prefs.exclusiveAudio && !hasFocus) requestAudioFocus() else releaseFocusIfIdle()
 
         val now = System.currentTimeMillis()
         if (eng.stalledMs <= AUDIO_STALL_MS) {
@@ -879,7 +933,8 @@ class TelsizService : Service() {
             append(", son yazım ").append(eng.stalledMs).append(" ms önce")
             if (eng.queuedFrames > 0) append(", kuyrukta ").append(eng.queuedFrames)
         }
-        append("\nodak ").append(if (hasFocus) "bizde" else "BAŞKASINDA")
+        append("\nodak ").append(if (hasFocus) "bizde" else "boşta")
+        append(if (prefs.exclusiveAudio) " (sürekli)" else " (kibar)")
         append(" · değişim ").append(focusChanges)
         if (audioStallFixes > 0) append(" · tıkanma onarımı ").append(audioStallFixes)
         val l = lan
