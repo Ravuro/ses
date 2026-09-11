@@ -154,6 +154,7 @@ class MainActivity : Activity() {
         window.navigationBarColor = BG
 
         prefs = Prefs(this)
+        CrashLog.install(this)
         setContentView(buildUi())
 
         edtNick.setText(prefs.nick)
@@ -407,7 +408,9 @@ class MainActivity : Activity() {
         }
         root.addView(txtHint)
 
-        picker = TargetPicker(this).apply { visibility = View.GONE }
+        // INVISIBLE: GONE olan görünüm hiç ölçülmüyor, ilk açılışta
+        // genişliği sıfır oluyor ve yerleştirme hesabı patlıyordu.
+        picker = TargetPicker(this).apply { visibility = View.INVISIBLE }
         val stack = FrameLayout(this)
         stack.addView(root, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
@@ -1084,6 +1087,19 @@ class MainActivity : Activity() {
             setPadding(dp(10), dp(4), 0, dp(4))
             setOnClickListener { copyDiag() }
         })
+        head.addView(TextView(this).apply {
+            text = "TEMİZLE"
+            setTextColor(MUTED)
+            textSize = 9f
+            typeface = Fonts.mono(context, bold = true)
+            letterSpacing = 0.12f
+            setPadding(dp(12), dp(4), 0, dp(4))
+            setOnClickListener {
+                prefs.lastCrash = ""
+                toast("Çökme kaydı silindi")
+                refresh()
+            }
+        })
         c.addView(head)
 
         txtDiag = TextView(this).apply {
@@ -1302,7 +1318,13 @@ class MainActivity : Activity() {
         }
         netCard.visibility = if (running) View.VISIBLE else View.GONE
         diagCard.visibility = if (running) View.VISIBLE else View.GONE
-        if (running) txtDiag.text = svc?.diagnostics() ?: "başlatılıyor…"
+        if (running) txtDiag.text = buildString {
+            append(svc?.diagnostics() ?: "başlatılıyor…")
+            val crash = prefs.lastCrash
+            if (crash.isNotEmpty()) {
+                append("\n\nSON ÇÖKME\n").append(crash)
+            }
+        }
 
         ptt.live = running
         ptt.transmitting = svc?.transmitting == true

@@ -57,13 +57,16 @@ class TargetPicker(ctx: Context) : View(ctx) {
         selectedId = 0L
         selectedNick = null
         hasFinger = false
-        layoutItems()
         visibility = VISIBLE
+        layoutItems()
         invalidate()
     }
 
     fun close() {
-        visibility = GONE
+        // GONE değil: görünmeyen ama yerleşen bir katman kalması gerekiyor.
+        // GONE olan görünüm hiç ölçülmüyor, genişliği sıfır kalıyor ve ilk
+        // açılışta taşma sıkıştırması sınırları ters çeviriyordu.
+        visibility = INVISIBLE
         items = emptyList()
         selectedId = 0L
         selectedNick = null
@@ -113,10 +116,27 @@ class TargetPicker(ctx: Context) : View(ctx) {
         }
 
         // Ekrandan taşma: kenara yaklaşanı içeri çek.
+        //
+        // Katman henüz ölçülmemişse (genişlik sıfır) sıkıştırılacak bir alan
+        // yok: alt sınır üst sınırı aşıyor ve coerceIn hata fırlatıyor.
+        // Ölçüm gelince [onSizeChanged] burayı yeniden çağırıyor.
         val m = dp(46f)
+        if (width < 2 * m || height < 2 * m) return
         for (it in items) {
             it.x = it.x.coerceIn(m, width - m)
             it.y = it.y.coerceIn(m, height - m)
+        }
+    }
+
+    /**
+     * Katmanın ölçüsü sonradan geldiyse baloncukları yeniden yerleştir.
+     * Ekran döndürmede de gerekiyor.
+     */
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        if (items.isNotEmpty()) {
+            layoutItems()
+            invalidate()
         }
     }
 

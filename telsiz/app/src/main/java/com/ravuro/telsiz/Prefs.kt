@@ -73,6 +73,17 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("wanted", false)
         set(v) = sp.edit().putBoolean("wanted", v).apply()
 
+    /**
+     * Son çökmenin kaydı.
+     *
+     * Uygulama sahada, elde, çoğu zaman bilgisayarsız kullanılıyor; çökünce
+     * geriye "kapandı" demekten başka bir şey kalmıyordu. Yığın izi burada
+     * duruyor ve bir sonraki açılışta tanı ekranında görünüyor.
+     */
+    var lastCrash: String
+        get() = sp.getString("crash", "") ?: ""
+        set(v) = sp.edit().putString("crash", v).apply()
+
     /** Konuşmanın başında ve sonunda karşı tarafta çalan telsiz bipi. */
     var beep: Boolean
         get() = sp.getBoolean("beep", true)

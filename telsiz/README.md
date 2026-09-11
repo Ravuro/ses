@@ -178,6 +178,16 @@ atmak ya da Ayarlar'dan **Zorla durdur** demek. Android bunu "kullanıcı
 istemiyor" sayıyor, alarmları da siliyor ve uygulamayı elle açılana kadar
 durdurulmuş halde tutuyor. Bunu hiçbir kod aşamaz.
 
+### Çökme kaydı
+
+Uygulama sahada, elde, bilgisayarsız kullanılıyor: çökünce geriye "kapandı"
+demekten başka bir şey kalmıyordu. Artık yığın izi diske yazılıyor ve bir
+sonraki açılışta tanı kartında **SON ÇÖKME** başlığıyla görünüyor; oradan
+panoya alınıp gönderilebiliyor. **TEMİZLE** ile siliniyor.
+
+Sistemin kendi hata işleyicisi zincirin sonunda mutlaka çağrılıyor — yoksa
+uygulama çökmek yerine donardı.
+
 ### Tanı ekranı
 
 Canlı ekranın altındaki **TANI** kartı tahmin etmeyi bırakmak için:
