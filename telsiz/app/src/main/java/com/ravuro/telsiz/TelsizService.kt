@@ -134,6 +134,16 @@ class TelsizService : Service() {
     @Volatile var repairs: Int = 0
     @Volatile var lastRepair: String = "-"
 
+    /**
+     * Sessiz uyuşmazlıklar. İkisi de "kanalda kimse yok" gibi görünüyor ama
+     * sebepleri bambaşka; kullanıcıya söylenmezse saatlerce aranıyor.
+     */
+    @Volatile var otherVersion = 0        // kanalda görülen farklı sürüm
+    @Volatile var otherVersionAt = 0L
+    @Volatile var wrongKeyAt = 0L         // çözülemeyen şifreli paket
+    @Volatile var wrongKeyCount = 0
+    @Volatile var plainOnSecureAt = 0L    // parolalı kanala şifresiz paket
+
     @Volatile var relayStatus: String = "kapalı"
         private set
     @Volatile var startError: String? = null
@@ -221,6 +231,13 @@ class TelsizService : Service() {
 
         // Anahtar türetme kasıtlı olarak yavaş; oturum başına bir kez.
         crypto = ChannelCrypto.derive(prefs.passphrase, channel)
+        if (prefs.passphrase.isNotBlank() && crypto == null) {
+            // Parola yazılmış ama anahtar türetilememiş. Sessizce şifresiz
+            // devam etmek en kötüsü olurdu: kullanıcı korunduğunu sanırken
+            // ses açıktan gider. Görünür bir hata bırakıyoruz — arayüzde
+            // zaten ŞİFRESİZ yazacak, sebebi de belli olsun.
+            startError = "parola anahtarı üretilemedi; ses şifresiz gidiyor"
+        }
         // Sıra numarası sıfırdan başlamıyor: şifrelemede nonce buna bağlı.
         seq = prefs.nextSeqBase()
 
@@ -526,7 +543,14 @@ class TelsizService : Service() {
     /** LAN ve relay ayrı thread'lerden çağırıyor; [parsed] paylaşılan durum. */
     @Synchronized
     private fun onPacket(buf: ByteArray, len: Int, from: Source) {
-        if (!Packet.parse(buf, len, parsed)) return
+        if (!Packet.parse(buf, len, parsed)) {
+            val v = Packet.foreignVersion(buf, len)
+            if (v >= 0) {
+                otherVersion = v
+                otherVersionAt = System.currentTimeMillis()
+            }
+            return
+        }
         if (parsed.senderId == deviceId) return          // kendi sesimiz
         if (parsed.channel != channel) return            // başka kanal
         // Kişiye özel: bize değilse çalmıyoruz. Bu gizlilik değil, nezaket —
@@ -564,18 +588,30 @@ class TelsizService : Service() {
         var off = parsed.payloadOff
         var len2 = parsed.payloadLen
         if (parsed.encrypted) {
-            if (c == null) return          // parolamız yok, çözemeyiz
+            if (c == null) {
+                // Şifreli konuşuyorlar, bizim parolamız yok.
+                wrongKeyAt = System.currentTimeMillis()
+                wrongKeyCount++
+                return
+            }
             val n = c.open(
                 buf, Packet.HEADER, buf, parsed.payloadOff, parsed.payloadLen,
                 parsed.senderId, parsed.seq, plainBuf
             )
-            if (n < 0) return
+            if (n < 0) {
+                // Paket şifreli ama bizim anahtarımızla açılmıyor: parola
+                // (ya da davet kodu) farklı.
+                wrongKeyAt = System.currentTimeMillis()
+                wrongKeyCount++
+                return
+            }
             data = plainBuf
             off = 0
             len2 = n
         } else if (c != null) {
             // Parolalı kanalda şifresiz paket kabul edilmiyor: yoksa
             // şifrelemeyi devre dışı bırakmak için düz paket göndermek yeterdi.
+            plainOnSecureAt = System.currentTimeMillis()
             return
         }
 
@@ -732,6 +768,29 @@ class TelsizService : Service() {
         }
     }
 
+    /**
+     * Duyulmamanın sessiz sebebi varsa tek cümleyle söyler, yoksa null.
+     * Son bir dakika içinde görülenler dikkate alınıyor: eski bir uyarı
+     * düzeltildikten sonra ekranda kalmasın.
+     */
+    fun mismatchWarning(): String? {
+        val now = System.currentTimeMillis()
+        val fresh = 60_000L
+        if (otherVersionAt != 0L && now - otherVersionAt < fresh) {
+            return "Kanalda eski sürüm telsiz var (sürüm $otherVersion). " +
+                "Birbirinizi duyamazsınız; o kişinin uygulamayı güncellemesi gerek."
+        }
+        if (wrongKeyAt != 0L && now - wrongKeyAt < fresh) {
+            return "Kanalda konuşan var ama parolanız tutmuyor " +
+                "($wrongKeyCount paket çözülemedi). Aynı davet kodunu kullandığınızdan emin olun."
+        }
+        if (plainOnSecureAt != 0L && now - plainOnSecureAt < fresh) {
+            return "Kanalda parolasız konuşan var; siz parolalısınız. " +
+                "Onu duyamazsınız — aynı davet kodunu kullanın."
+        }
+        return null
+    }
+
     /** Tanı ekranının metni. Tahmin değil, ölçüm. */
     fun diagnostics(): String = buildString {
         val up = if (startedAt == 0L) 0 else (System.currentTimeMillis() - startedAt) / 1000
@@ -745,6 +804,7 @@ class TelsizService : Service() {
         if (l != null) append(" (").append(l.localIp).append(", kurulum ").append(l.rebuilds).append(")")
         append("\n").append(relay?.diag() ?: "röle ayarlı değil")
         append("\nkanaldaki kişi ").append(peers.size)
+        mismatchWarning()?.let { append("\nUYUŞMAZLIK: ").append(it) }
     }
 
     private fun presenceLoop() {
@@ -791,6 +851,21 @@ class TelsizService : Service() {
     fun talkingNow(): List<String> {
         val now = System.currentTimeMillis()
         return peers.values.filter { now - it.lastAudio < 700 }.map { it.nick }
+    }
+
+    /**
+     * Şu an konuşanların kimlikleri.
+     *
+     * Arayüz eskiden ada bakıyordu; aynı adı taşıyan iki kişi olduğunda
+     * (ki "Ali" hiç de nadir değil) biri konuşurken ikisi birden konuşuyor
+     * görünüyordu. Ad kullanıcının yazdığı şey, kimlik ise kurulum başına
+     * benzersiz.
+     */
+    fun talkingIds(): Set<Long> {
+        val now = System.currentTimeMillis()
+        val out = HashSet<Long>()
+        for (p in peers.values) if (now - p.lastAudio < 700) out.add(p.id)
+        return out
     }
 
     fun currentChannel(): Int = channel

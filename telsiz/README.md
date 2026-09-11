@@ -212,6 +212,61 @@ binlerce tur atıp işlemciyi yakıyor, ses yine gelmiyordu — üstelik nabız 
 çıkıyor, nabız motoru yeniden kuruyor. Mikrofonda üst üste okuma hatası
 aynı şekilde işleniyor.
 
+### Sessiz uyuşmazlık: "neden kimseyi duymuyorum"
+
+İki durum tam olarak "kanalda kimse yok" gibi görünüyordu, oysa sebepleri
+bambaşkaydı ve kullanıcıya söylenmediği için saatlerce aranıyordu:
+
+- **Sürüm farkı.** Tel formatı değişince eski sürümün paketleri sessizce
+  düşüyor. Karşı taraf konuşuyor, siz hiçbir şey duymuyorsunuz.
+- **Parola farkı.** Aynı kanal numarası, farklı davet kodu. Paketler
+  geliyor ama doğrulamadan geçmiyor.
+
+Artık ikisi de yakalanıyor ve canlı ekranda **NEDEN DUYMUYORSUN** kartında
+tek cümleyle yazıyor. Uyarı son bir dakikada görülene bakıyor: sorun
+çözülünce kart kendiliğinden kayboluyor.
+
+Yanlış alarm vermemesi önemliydi — insan bir kez boşuna uyarılınca uyarıya
+güvenmeyi bırakıyor. 200 000 rastgele paketle sınandı, tek yanlış alarm yok.
+
+### Ses seviyesi
+
+Telsiz açıkken ses tuşlarını medya oturumu alıyor: yükseltme tuşu
+bas-konuş, kısma tuşu ses ayarı. Yani seviye **düşürülebiliyor ama
+yükseltilemiyordu** — yanlışlıkla kısan kişinin telsizi sağır kalıyor ve
+çıkış yolu bulunmuyordu. Canlı ekrana seviye göstergesi ve −/+ düğmeleri
+eklendi; sıfırdayken gösterge kehribar yanıyor.
+
+### Röle sunucusunun kendi sitenizi düşürmesi
+
+Uzun bekleyen her istek 15 saniye boyunca bir PHP işçisi tutuyor.
+Paylaşımlı hosting hesabında eşzamanlı işçi sayısı çoğu zaman 10-30.
+Sınır konmadığında on kişilik bir telsiz kanalı, **aynı hesapta duran web
+sitesini de birlikte götürüyordu**.
+
+Artık en çok 8 istek uzun bekliyor; sınıra takılan hata almıyor, bir saniye
+bekleyip dönüyor. Gecikme artıyor, ses akmaya devam ediyor, site ayakta
+kalıyor. Yer tutmak için sayaç değil kilit dosyası kullanılıyor: süreç nasıl
+biterse bitsin işletim sistemi kilidi kendiliğinden bırakıyor.
+
+Ayrıca bir kez kullanılan her kanal, hosting hesabında sonsuza kadar dosya
+tutuyordu; bir günden eski kanal dosyaları artık süpürülüyor.
+
+Gerçek PHP 8.4 altında ölçüldü: 14 eşzamanlı dinleyiciden 9'u uzun bekledi,
+5'i kısa döndü, hiçbiri asılı kalmadı.
+
+> **Sunucudaki relay.php'yi yenilemen gerekiyor** — bu sınır dosyanın
+> içinde, uygulamada değil.
+
+### wss:// sunucu adı doğrulaması
+
+WebSocket yolu kullanılıyorsa (`ws://`/`wss://` adresi verildiğinde) çıplak
+`SSLSocket` sertifika zincirini doğruluyor ama **sertifikadaki adın
+bağlandığımız sunucuya ait olup olmadığına bakmıyordu**. `HttpURLConnection`
+bunu kendiliğinden yapıyor, çıplak soket yapmıyor. Açık bırakılsaydı
+herhangi bir geçerli sertifika sahibi araya girebilirdi. Artık
+`endpointIdentificationAlgorithm = "HTTPS"` ayarlanıyor.
+
 ### Çökme kaydı
 
 Uygulama sahada, elde, bilgisayarsız kullanılıyor: çökünce geriye "kapandı"

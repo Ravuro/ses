@@ -9,6 +9,7 @@ import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -108,6 +109,10 @@ class MainActivity : Activity() {
     private lateinit var txtPowerWarn: TextView
     private lateinit var replayBtn: Button
     private lateinit var inviteBtn: Button
+    private lateinit var warnCard: View
+    private lateinit var txtWarn: TextView
+    private lateinit var volumeCard: View
+    private lateinit var txtVolume: TextView
     private lateinit var peersCard: View
     private lateinit var peersCount: TextView
     private lateinit var peersList: LinearLayout
@@ -307,6 +312,7 @@ class MainActivity : Activity() {
         content.addView(buildPowerCard())
         content.addView(buildLiveHero())
         content.addView(buildTelemetry(), marginTop(0))
+        content.addView(buildWarnCard(), marginTop(14))
         content.addView(buildPeers(), marginTop(14))
 
         replayBtn = outlineButton("SON KONUŞMAYI ÇAL", TEXT2, LINE2) {
@@ -322,6 +328,7 @@ class MainActivity : Activity() {
             ViewGroup.LayoutParams.MATCH_PARENT, dp(48)
         ).apply { topMargin = dp(9) })
         content.addView(buildSetup())
+        content.addView(buildVolumeCard(), marginTop(12))
         content.addView(buildNetCard(), marginTop(12))
         content.addView(buildDiagCard(), marginTop(12))
 
@@ -722,6 +729,18 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun buildWarnCard(): View {
+        val c = card().apply {
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = rounded(0xFF1E1710.toInt(), 18, 0xFF4A3A1C.toInt())
+        }
+        c.addView(caption("NEDEN DUYMUYORSUN").apply { setTextColor(AMBER) })
+        txtWarn = body("", 13f, 0xFFE8C98A.toInt()).apply { setPadding(0, dp(8), 0, 0) }
+        c.addView(txtWarn)
+        warnCard = c
+        return c
+    }
+
     private fun buildPeers(): View {
         val c = card().apply { setPadding(dp(16), dp(15), dp(16), dp(8)) }
         val head = LinearLayout(this).apply {
@@ -1078,6 +1097,70 @@ class MainActivity : Activity() {
     }
 
     /**
+     * Ses seviyesi.
+     *
+     * Telsiz açıkken ses tuşlarını medya oturumu alıyor: yükseltme tuşu
+     * bas-konuş, kısma tuşu ses ayarı. Yani seviye düşürülebiliyor ama
+     * yükseltilemiyordu — yanlışlıkla kısan kişinin telsizi sağır kalıyordu
+     * ve çıkış yolu yoktu. Yükseltmenin bir yeri olmak zorunda; burası.
+     */
+    private fun buildVolumeCard(): View {
+        val c = card().apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(12), dp(12), dp(12))
+        }
+        val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        texts.addView(caption("SES SEVİYESİ"))
+        txtVolume = TextView(this).apply {
+            textSize = 13f
+            typeface = Fonts.mono(context)
+            setTextColor(TEXT)
+            setPadding(0, dp(6), 0, 0)
+        }
+        texts.addView(txtVolume)
+        c.addView(texts, LinearLayout.LayoutParams(
+            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
+        ))
+        c.addView(stepButton("−") { nudgeVolume(false) })
+        c.addView(stepButton("+") { nudgeVolume(true) }.apply {
+            (layoutParams as LinearLayout.LayoutParams).leftMargin = dp(9)
+        })
+        volumeCard = c
+        return c
+    }
+
+    private fun nudgeVolume(up: Boolean) {
+        try {
+            getSystemService(AudioManager::class.java)?.adjustStreamVolume(
+                AudioManager.STREAM_MUSIC,
+                if (up) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER,
+                0
+            )
+        } catch (_: Exception) {
+        }
+        refreshVolume()
+    }
+
+    private fun refreshVolume() {
+        val (cur, max) = try {
+            val am = getSystemService(AudioManager::class.java)
+            (am?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 0) to
+                (am?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 0)
+        } catch (_: Exception) {
+            0 to 0
+        }
+        if (max <= 0) {
+            txtVolume.text = "-"
+            return
+        }
+        val filled = (cur * 12 + max / 2) / max
+        val bar = "▮".repeat(filled) + "▯".repeat(12 - filled)
+        txtVolume.text = bar + "  " + cur + "/" + max
+        txtVolume.setTextColor(if (cur == 0) AMBER else TEXT)
+    }
+
+    /**
      * Tanı. "Sanırım çalışmıyor" ile "şu an röleden 96 saniyedir cevap yok"
      * arasındaki fark, sorunu bir denemede çözmekle üç denemede çözmek
      * arasındaki fark. Metin uzun basınca panoya kopyalanıyor.
@@ -1323,6 +1406,9 @@ class MainActivity : Activity() {
         liveHero.visibility = if (running) View.VISIBLE else View.GONE
         telemetry.visibility = if (running) View.VISIBLE else View.GONE
         peersCard.visibility = if (running) View.VISIBLE else View.GONE
+        val warn = if (running) svc?.mismatchWarning() else null
+        warnCard.visibility = if (warn != null) View.VISIBLE else View.GONE
+        if (warn != null) txtWarn.text = warn
         replayBtn.visibility = if (running) View.VISIBLE else View.GONE
         inviteBtn.visibility =
             if (running && prefs.invite.isNotEmpty()) View.VISIBLE else View.GONE
@@ -1331,6 +1417,8 @@ class MainActivity : Activity() {
         }
         netCard.visibility = if (running) View.VISIBLE else View.GONE
         diagCard.visibility = if (running) View.VISIBLE else View.GONE
+        volumeCard.visibility = if (running) View.VISIBLE else View.GONE
+        if (running) refreshVolume()
         if (running) txtDiag.text = buildString {
             append(svc?.diagnostics() ?: "başlatılıyor…")
             val crash = prefs.lastCrash
@@ -1341,7 +1429,7 @@ class MainActivity : Activity() {
 
         ptt.live = running
         ptt.transmitting = svc?.transmitting == true
-        ptt.receiving = running && svc != null && svc.talkingNow().isNotEmpty()
+        ptt.receiving = running && svc != null && svc.talkingIds().isNotEmpty()
 
         if (!running) {
             stateDot.background = circle(FAINT)
@@ -1452,9 +1540,10 @@ class MainActivity : Activity() {
      */
     private fun refreshPeers(svc: TelsizService) {
         val peers = svc.peerList()
-        val talking = svc.talkingNow().toSet()
+        val talking = svc.talkingIds()
         val sig = peers.joinToString("|") {
-            it.nick + (if (talking.contains(it.nick)) "*" else "") +
+            it.id.toString() + it.nick +
+                (if (talking.contains(it.id)) "*" else "") +
                 (if (svc.isMuted(it.id)) "#" else "")
         }
         peersCount.text = peers.size.toString()
@@ -1470,7 +1559,7 @@ class MainActivity : Activity() {
         }
 
         for ((i, p) in peers.withIndex()) {
-            val speaking = talking.contains(p.nick)
+            val speaking = talking.contains(p.id)
             val isMuted = svc.isMuted(p.id)
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL

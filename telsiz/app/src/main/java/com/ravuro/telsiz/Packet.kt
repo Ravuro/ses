@@ -139,6 +139,22 @@ object Packet {
         return true
     }
 
+    /**
+     * Paket bizim biçimimizde ama sürümü başka mı?
+     *
+     * Sürümü tutmayan paket sessizce düşüyor ve kullanıcı "kimseyi
+     * duymuyorum" diyor. Hangi sürümden geldiğini bilirsek bunu
+     * söyleyebiliyoruz. Bizim sürümümüzse ya da bizim paketimiz değilse -1.
+     */
+    fun foreignVersion(buf: ByteArray, len: Int): Int {
+        if (len < HEADER) return -1
+        if (buf[0] != 'T'.code.toByte() || buf[1] != 'L'.code.toByte() ||
+            buf[2] != 'S'.code.toByte() || buf[3] != 'Z'.code.toByte()
+        ) return -1
+        val v = buf[4].toInt() and 0xFF
+        return if (v == VERSION.toInt()) -1 else v
+    }
+
     private fun putShort(b: ByteArray, o: Int, v: Int) {
         b[o] = ((v shr 8) and 0xFF).toByte()
         b[o + 1] = (v and 0xFF).toByte()

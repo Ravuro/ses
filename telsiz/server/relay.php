@@ -23,6 +23,23 @@ declare(strict_types=1);
 const DATA_DIR      = __DIR__ . '/telsiz-data';
 const MAX_FILE      = 1048576;   // 1 MB: aşınca kanal dosyası sıfırlanır
 const POLL_SECONDS  = 15;        // uzun bekleyen GET süresi
+/**
+ * Aynı anda kaç istek uzun bekleyebilir.
+ *
+ * Bu sınır rölenin değil, siteyi ayakta tutmanın meselesi. Uzun bekleyen
+ * her istek 15 saniye boyunca bir PHP işçisini tutuyor; paylaşımlı hosting
+ * hesabında eşzamanlı işçi sayısı çoğu zaman 10-30 arasında. Sınır
+ * konmazsa on kişilik bir telsiz kanalı, aynı hesapta duran web sitesini
+ * de birlikte götürür.
+ *
+ * Sınıra takılan istek hata almıyor, yalnızca kısa bekleyip dönüyor:
+ * istemci saniyede bir soruyor, gecikme artıyor ama ses akmaya devam
+ * ediyor ve site ayakta kalıyor.
+ */
+const MAX_LISTENERS = 8;
+const SHORT_POLL_SECONDS = 1;
+/** Bu kadar süredir dokunulmayan kanal dosyası siliniyor. */
+const CHANNEL_TTL   = 86400;
 const POLL_SLEEP_US = 40000;     // 40 ms
 const MAX_RESPONSE  = 65536;
 const MAX_POST      = 65536;
@@ -48,6 +65,45 @@ function channel_file(): string {
 function sender_hash(): int {
     $id = isset($_GET['id']) ? substr((string) $_GET['id'], 0, 32) : '';
     return (int) (crc32($id) & 0xFFFFFFFF);
+}
+
+/**
+ * Uzun bekleme için yer kapar; yer yoksa null döner.
+ *
+ * Sayaç yerine kilit dosyası kullanılıyor: PHP süreci nasıl biterse bitsin
+ * (zaman aşımı, ölüm, istemcinin kopması) işletim sistemi kilidi
+ * kendiliğinden bırakıyor. Sayaç artırmak olsaydı, düşen her istek
+ * sayacı kalıcı olarak şişirirdi.
+ */
+function take_listen_slot() {
+    for ($i = 0; $i < MAX_LISTENERS; $i++) {
+        $f = @fopen(DATA_DIR . '/slot' . $i . '.lock', 'c');
+        if ($f === false) {
+            return null;
+        }
+        if (flock($f, LOCK_EX | LOCK_NB)) {
+            return $f;
+        }
+        fclose($f);
+    }
+    return null;
+}
+
+/**
+ * Eskimiş kanal dosyalarını siler.
+ *
+ * Her kanal numarası için bir dosya açılıyor ve hiç kapanmıyordu; bir kez
+ * kullanılan kanal, hosting hesabında sonsuza kadar yer tutuyordu. Sık
+ * çalıştırmaya gerek yok, POST'ların yüzde birinde yapılıyor.
+ */
+function sweep_old_channels() {
+    $now = time();
+    foreach ((array) @glob(DATA_DIR . '/ch*.bin') as $old) {
+        $t = @filemtime($old);
+        if ($t !== false && $now - $t > CHANNEL_TTL) {
+            @unlink($old);
+        }
+    }
 }
 
 $file = channel_file();
@@ -206,6 +262,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     fflush($f);
     flock($f, LOCK_UN);
     fclose($f);
+    if (random_int(1, 100) === 1) {
+        sweep_old_channels();
+    }
     http_response_code(204);
     exit;
 }
@@ -220,7 +279,9 @@ if ($cursor < 0 || $cursor > $size) {
     $cursor = $size;
 }
 
-$deadline = microtime(true) + POLL_SECONDS;
+// Yer varsa uzun bekle, yoksa kısa: sunucu işçileri tükenmesin.
+$slot     = take_listen_slot();
+$deadline = microtime(true) + ($slot === null ? SHORT_POLL_SECONDS : POLL_SECONDS);
 while (true) {
     clearstatcache(true, $file);
     $size = is_file($file) ? (int) filesize($file) : 0;
@@ -231,6 +292,11 @@ while (true) {
         break;
     }
     usleep(POLL_SLEEP_US);
+}
+
+if ($slot !== null) {
+    flock($slot, LOCK_UN);
+    fclose($slot);
 }
 
 $out = '';

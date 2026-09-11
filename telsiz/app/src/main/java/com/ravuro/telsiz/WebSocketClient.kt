@@ -67,6 +67,14 @@ class WebSocketClient(private val url: String, private val listener: Listener) {
         val s: Socket = if (secure) {
             val ssl = (SSLSocketFactory.getDefault() as SSLSocketFactory)
                 .createSocket(raw, host, port, true) as SSLSocket
+            // Sertifika zincirini doğrulamak yetmiyor: SSLSocket varsayılan
+            // olarak sertifikadaki adın bağlandığımız sunucuya ait olup
+            // olmadığına BAKMIYOR. Bu açık bırakılırsa herhangi bir geçerli
+            // sertifika sahibi araya girip sesi dinleyebilir. HttpURLConnection
+            // bunu kendiliğinden yapıyor, çıplak soket yapmıyor.
+            ssl.sslParameters = ssl.sslParameters.apply {
+                endpointIdentificationAlgorithm = "HTTPS"
+            }
             ssl.startHandshake()
             ssl
         } else {
