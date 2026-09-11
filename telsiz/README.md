@@ -203,6 +203,31 @@ Sınandıktan sonra kapatılan açıklar:
   ayıklanıyor: satır sonu taşıyan bir ad kişi listesini ve tanı metnini
   dağıtıyordu.
 
+### "Kapattım ama hâlâ açık"
+
+İki ayrı şey var ve karıştırılması doğal:
+
+- **Pencereyi kapatmak** (geri tuşu, son uygulamalardan kaydırmak) telsizi
+  kapatmıyor. Kapatmıyor olması gerekiyor: telsizin işi zaten sen başka bir
+  şey yaparken dinlemek. Kaydırınca bildirim duruyor ve ses gelmeye devam
+  ediyor.
+- **Telsizi kapatmak** iki yerden: uygulamadaki **DURDUR**, ya da
+  bildirimdeki **TELSİZİ KAPAT** düğmesi.
+
+Bunun yanında gerçek bir yarış vardı. Nabız dakikada bir servisi ayakta
+tutuyor; kullanıcı tam o sırada kapatırsa yolda kalmış istek telsizi geri
+açıyordu. Kapatmak artık kesin: kullanıcının kendi başlatması ayrı bir
+eylem (`ACTION_START`), nabzın ve sistemin istekleri ise yalnızca kullanıcı
+kapatmamışsa iş görüyor.
+
+Bunu düzeltirken bozulmaması gereken şey, nabzın meşru işi: sistem süreci
+öldürdüğünde telsizi geri getirmek. Kapat/aç/öldür dizileri sınandı —
+kullanıcı kapattıysa on nabız üst üste bile diriltmiyor, sistem öldürdüyse
+ilk nabız geri getiriyor.
+
+Tanı kartı artık son uygulamalardan kaydırıldığını da yazıyor, böylece
+"kapattım" derken ne yapıldığı belli oluyor.
+
 ### Telsiz açıkken başka uygulamaların susması
 
 Telsiz arkaplanda açıkken Instagram, YouTube, müzik — hiçbiri ses

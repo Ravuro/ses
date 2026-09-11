@@ -1312,7 +1312,12 @@ class MainActivity : Activity() {
             edtChannel.setText(prefs.channel.toString())
         }
 
-        startForegroundService(Intent(this, TelsizService::class.java))
+        // Kullanıcının kendi başlatması: nabzın isteklerinden ayrı bir eylem,
+        // böylece kapatıldıktan sonra yolda kalmış bir nabız telsizi geri
+        // getiremiyor.
+        startForegroundService(
+            Intent(this, TelsizService::class.java).setAction(TelsizService.ACTION_START)
+        )
         bind()
         refresh()
     }

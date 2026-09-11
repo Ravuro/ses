@@ -28,6 +28,14 @@ class TelsizService : Service() {
 
     companion object {
         const val ACTION_STOP = "com.ravuro.telsiz.STOP"
+
+        /**
+         * Kullanıcının kendi başlatması. Nabzın gönderdiği isteklerden
+         * ayrılması gerekiyor: kullanıcı telsizi kapattığı anda yolda kalmış
+         * bir nabız isteği onu geri getirebiliyordu. Kullanıcı "kapattım ama
+         * hâlâ açık" derken gördüğü şey buydu.
+         */
+        const val ACTION_START = "com.ravuro.telsiz.START"
         private const val NOTIF_ID = 1
         private const val CHANNEL_ID = "telsiz_durum"
         private const val PRESENCE_MS = 3000L
@@ -175,6 +183,7 @@ class TelsizService : Service() {
     @Volatile var lostFocusAt = 0L
     @Volatile var audioStallFixes = 0
     @Volatile private var lastAudioAt = 0L
+    @Volatile var swipedAwayAt = 0L
     private var audioFixAt = 0L
     private var audioFixWait = AUDIO_FIX_MIN_MS
 
@@ -250,8 +259,37 @@ class TelsizService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+
+        // Kullanıcı kapattıysa yalnızca yeni bir "başlat" telsizi açabilir.
+        // Nabzın isteği ve sistemin START_STICKY yeniden başlatması, kapalı
+        // kalmış bir telsizi diriltmemeli.
+        if (intent?.action != ACTION_START && !Prefs(this).sessionWanted) {
+            // startForegroundService ile gelinmiş olabilir: sözleşmeyi
+            // yerine getirmeden durmak uygulamayı çökertir.
+            createNotificationChannel()
+            startForegroundCompat()
+            stopForegroundCompat()
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
         if (!isRunning) startSession()
         return START_STICKY
+    }
+
+    /**
+     * Kullanıcı uygulamayı son uygulamalar ekranından kaydırdı.
+     *
+     * Telsiz burada kapanmıyor ve bu kasıtlı: telsizin işi zaten ekran
+     * kapalıyken dinlemek. Kaydırmak pencereyi kapatır, telsizi değil —
+     * kapatmak için bildirimdeki düğme ya da uygulamadaki DURDUR var.
+     *
+     * Yine de kaydırmayı kaydediyoruz: "kapattım ama hâlâ açık" diyen
+     * kullanıcının gerçekte ne yaptığını tanı ekranından görebilelim.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        swipedAwayAt = System.currentTimeMillis()
+        super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {
@@ -942,6 +980,11 @@ class TelsizService : Service() {
         if (l != null) append(" (").append(l.localIp).append(", kurulum ").append(l.rebuilds).append(")")
         append("\n").append(relay?.diag() ?: "röle ayarlı değil")
         append("\nkanaldaki kişi ").append(peers.size)
+        if (swipedAwayAt != 0L) {
+            val sn = (System.currentTimeMillis() - swipedAwayAt) / 1000
+            append("\nson uygulamalardan kaydırıldı: ").append(sn).append(" sn önce")
+            append(" (telsiz kasten açık kaldı)")
+        }
         mismatchWarning()?.let { append("\nUYUŞMAZLIK: ").append(it) }
     }
 
@@ -1055,7 +1098,7 @@ class TelsizService : Service() {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(open)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Kapat", stop)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "TELSİZİ KAPAT", stop)
             .build()
     }
 
