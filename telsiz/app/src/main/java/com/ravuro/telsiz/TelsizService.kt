@@ -54,6 +54,24 @@ class TelsizService : Service() {
         /** Tanımadığımız gönderenin penceresi bu kadar sessizlikten sonra silinir. */
         private const val WINDOW_TTL_MS = 60_000L
 
+        /**
+         * Mikser bu kadar süre kare yazmazsa tıkanmış sayılıyor. Normal
+         * aralık 40 ms; dört saniye, en ağır yüklenmede bile olağan değil.
+         */
+        private const val AUDIO_STALL_MS = 4_000L
+
+        /**
+         * Tıkanma onarımları arasındaki en kısa ve en uzun bekleme.
+         *
+         * Yeniden kurmak düzeltmiyorsa (cihazın ses katmanı gerçekten
+         * bozuksa) her yedi saniyede bir mikrofonu ve çıkışı baştan kurmak
+         * işe yaramadan pil yakıyor, üstelik her seferinde tekrar dinleme
+         * tamponunu da siliyor. Denemeler seyrekleşiyor; ses düzelince
+         * sayaç sıfırlanıyor.
+         */
+        private const val AUDIO_FIX_MIN_MS = 5_000L
+        private const val AUDIO_FIX_MAX_MS = 60_000L
+
         @Volatile var isRunning = false
 
         /**
@@ -143,6 +161,14 @@ class TelsizService : Service() {
     @Volatile var wrongKeyAt = 0L         // çözülemeyen şifreli paket
     @Volatile var wrongKeyCount = 0
     @Volatile var plainOnSecureAt = 0L    // parolalı kanala şifresiz paket
+
+    /** Ses odağı durumu — kaybedilen odak sessizliğin sık sebebi. */
+    @Volatile var hasFocus = false
+    @Volatile var focusChanges = 0
+    @Volatile var lostFocusAt = 0L
+    @Volatile var audioStallFixes = 0
+    private var audioFixAt = 0L
+    private var audioFixWait = AUDIO_FIX_MIN_MS
 
     @Volatile var relayStatus: String = "kapalı"
         private set
@@ -460,9 +486,16 @@ class TelsizService : Service() {
                         .build()
                 )
                 .setWillPauseWhenDucked(false)
-                .setOnAudioFocusChangeListener { }
+                // Dinleyici boştu: odağı bir kez alıp bırakıyorduk ve
+                // kaybettiğimizde haberimiz bile olmuyordu. Odak gidince
+                // bazı cihazlar çıkışı durduruyor; ses kuyrukta birikiyor.
+                .setOnAudioFocusChangeListener { change ->
+                    hasFocus = change == AudioManager.AUDIOFOCUS_GAIN
+                    focusChanges++
+                    if (!hasFocus) lostFocusAt = System.currentTimeMillis()
+                }
                 .build()
-            am.requestAudioFocus(req)
+            hasFocus = am.requestAudioFocus(req) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
             focusRequest = req
         } catch (_: Exception) {
         }
@@ -648,6 +681,47 @@ class TelsizService : Service() {
         }
     }
 
+    /**
+     * Mikser gerçekten ilerliyor mu — üç saniyede bir.
+     *
+     * Nabzı (dakikada bir) beklemek burada çok geç: tıkalı geçen her saniye
+     * duyulmayan konuşma demek. Tıkanmanın belirtisi iş parçacığının ölmesi
+     * değil, kare yazmayı bırakması; normalde 40 ms'de bir yazılıyor.
+     *
+     * Konuşurken yeniden kurmuyoruz: mikrofonu ortasından kesmek, birkaç
+     * saniyelik gecikmeden daha kötü.
+     */
+    private fun checkAudioProgress() {
+        val eng = engine ?: return
+        if (eng.transmitting) return
+
+        // Odak kaybedildiyse geri iste. Kaybı fark etmek bile eskiden
+        // mümkün değildi.
+        if (!hasFocus) requestAudioFocus()
+
+        val now = System.currentTimeMillis()
+        if (eng.stalledMs <= AUDIO_STALL_MS) {
+            // Akış sağlıklı: bir sonraki arıza için yeniden hızlı davran.
+            audioFixWait = AUDIO_FIX_MIN_MS
+            return
+        }
+        if (audioFixAt != 0L && now - audioFixAt < audioFixWait) return
+
+        audioFixAt = now
+        audioStallFixes++
+        repairs++
+        lastRepair = "ses tıkandı (" + eng.stalledMs + " ms, kuyrukta " +
+            eng.queuedFrames + " kare)"
+        try {
+            eng.stop()
+            eng.start()
+        } catch (_: Exception) {
+        }
+        // Düzelmezse denemeler seyrekleşsin; düzelirse yukarıda sıfırlanıyor.
+        audioFixWait = (audioFixWait * 2).coerceAtMost(AUDIO_FIX_MAX_MS)
+        updateNotification()
+    }
+
     /** En eski pencereyi düşürerek yeni gönderene yer açar. */
     private fun evictIfFull() {
         while (windows.size >= MAX_SENDERS) {
@@ -798,7 +872,16 @@ class TelsizService : Service() {
         append(" · nabız ").append(beats)
         append(" · onarım ").append(repairs)
         if (lastRepair != "-") append("\nson onarım: ").append(lastRepair)
-        append("\nses ").append(if (engine?.alive == true) "çalışıyor" else "DURMUŞ")
+        val eng = engine
+        append("\nses ").append(if (eng?.alive == true) "çalışıyor" else "DURMUŞ")
+        if (eng != null) {
+            append(" · mikser ").append(eng.framesWritten).append(" kare")
+            append(", son yazım ").append(eng.stalledMs).append(" ms önce")
+            if (eng.queuedFrames > 0) append(", kuyrukta ").append(eng.queuedFrames)
+        }
+        append("\nodak ").append(if (hasFocus) "bizde" else "BAŞKASINDA")
+        append(" · değişim ").append(focusChanges)
+        if (audioStallFixes > 0) append(" · tıkanma onarımı ").append(audioStallFixes)
         val l = lan
         append(" · yerel ").append(if (l?.alive == true) "açık" else "DURMUŞ")
         if (l != null) append(" (").append(l.localIp).append(", kurulum ").append(l.rebuilds).append(")")
@@ -812,6 +895,7 @@ class TelsizService : Service() {
             try {
                 sendPresence()
                 expirePeers()
+                checkAudioProgress()
             } catch (_: Exception) {
             }
             try { Thread.sleep(PRESENCE_MS) } catch (_: InterruptedException) { return }

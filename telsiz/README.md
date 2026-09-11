@@ -203,6 +203,40 @@ Sınandıktan sonra kapatılan açıklar:
   ayıklanıyor: satır sonu taşıyan bir ad kişi listesini ve tanı metnini
   dağıtıyordu.
 
+### Ses birikip sonra boşalıyorsa
+
+Sahadan gelen en öğretici rapor şuydu: arkaplanda konuşanın sesi gelmiyor,
+uygulama açılınca **söylenen şey o anda çalıyor**. Yani ses kaybolmuyordu,
+bekliyordu.
+
+Tanı çıktısı ağın kusursuz olduğunu gösteriyordu: hata 0, diriltme 0, son
+cevap 0 sn önce, gecikme 58 ms. Paketler geliyor, çözülüyor, kuyruğa
+giriyor — ama mikser onları çalmıyor.
+
+Sebep, röledeki donmuş soketin ses tarafındaki ikizi: `AudioTrack.write()`
+tıkandığında süresiz blokluyor. İş parçacığı canlı görünüyor, "ses
+çalışıyor" yazıyor, tek örnek bile çalmıyor. **Canlılık ile ilerleme aynı
+şey değil.**
+
+İki şey yapıldı:
+
+- **İlerleme ölçülüyor.** Mikserin son kare yazdığı an tutuluyor; normalde
+  40 ms'de bir yazılıyor. Dört saniye yazılmazsa motor yeniden kuruluyor.
+  Denetim üç saniyede bir — nabzı (dakikada bir) beklemek burada çok geç,
+  tıkalı geçen her saniye duyulmayan konuşma demek.
+- **Ses odağı gerçekten izleniyor.** Odak dinleyicisi boştu: odağı bir kez
+  alıp bırakıyor, kaybettiğimizde haberimiz bile olmuyordu. Odak gidince
+  bazı cihazlar çıkışı durduruyor. Artık kayıp görülüyor ve geri isteniyor.
+
+Yanlış tetiklenmemesi tıkanmayı yakalamak kadar önemli: canlı konuşmayı
+her birkaç saniyede bir kesen bir onarım, onarım değil arızadır. Yarım
+saatlik sağlıklı akış simülasyonunda tek yanlış tetikleme yok, konuşurken
+hiç karışmıyor. Onarım düzeltmiyorsa denemeler seyrekleşiyor (5 sn'den 60
+sn'ye), yoksa bozuk bir cihazda saatlerce boşuna mikrofon kurulurdu.
+
+Tanı kartı artık bunu gösteriyor: `mikser N kare, son yazım X ms önce` ve
+`odak bizde / BAŞKASINDA`.
+
 ### Ses yolu ölünce
 
 `AudioTrack.write()` negatif dönerse ses çıkışı ölmüş demektir. Eskiden

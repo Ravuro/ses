@@ -57,6 +57,8 @@ class AudioEngine(private val onFrame: (ByteArray, Int, Int, Int) -> Unit) {
             if (frames.size >= PRIME_FRAMES) primed = true
         }
 
+        fun size(): Int = frames.size
+
         fun poll(): ShortArray? {
             if (!primed) return null
             val f = frames.poll()
@@ -117,6 +119,36 @@ class AudioEngine(private val onFrame: (ByteArray, Int, Int, Int) -> Unit) {
     val alive: Boolean
         get() = running && txThread?.isAlive == true && rxThread?.isAlive == true
 
+    /**
+     * Miksere en son ne zaman kare yazıldı.
+     *
+     * "İş parçacığı yaşıyor" yetmiyor. AudioTrack tıkandığında write()
+     * süresiz blokluyor: iş parçacığı canlı görünüyor, [alive] true diyor,
+     * ama tek bir örnek bile çalmıyor. Gelen ses kuyrukta birikiyor ve
+     * uygulama öne alınınca hepsi birden boşalıyor — dışarıdan "arkaplanda
+     * ses gelmiyor, açınca geliyor" olarak görünen şey bu.
+     *
+     * Bu yüzden canlılık değil ilerleme ölçülüyor.
+     */
+    @Volatile var lastWriteAt = 0L
+        private set
+
+    /** Mikserin yazdığı toplam kare. Tanıda ilerlemeyi göstermek için. */
+    @Volatile var framesWritten = 0L
+        private set
+
+    /** Kaç milisaniyedir tek kare yazılmadı. Normalde 40 ms'de bir yazılır. */
+    val stalledMs: Long
+        get() = if (lastWriteAt == 0L) 0L else System.currentTimeMillis() - lastWriteAt
+
+    /** Çalınmayı bekleyen kare sayısı — tıkanma birikmeyle birlikte gelir. */
+    val queuedFrames: Int
+        get() {
+            var n = 0
+            for (q in queues.values) n += q.size()
+            return n
+        }
+
     @SuppressLint("MissingPermission")
     fun start(): Boolean {
         if (running) return true
@@ -169,6 +201,7 @@ class AudioEngine(private val onFrame: (ByteArray, Int, Int, Int) -> Unit) {
 
         running = true
         lastError = null
+        lastWriteAt = System.currentTimeMillis()
         txThread = Thread({ captureLoop() }, "telsiz-tx").apply { isDaemon = true; start() }
         rxThread = Thread({ playbackLoop() }, "telsiz-rx").apply { isDaemon = true; start() }
         return true
@@ -426,6 +459,8 @@ class AudioEngine(private val onFrame: (ByteArray, Int, Int, Int) -> Unit) {
                     lastError = "ses çıkışı düştü ($wrote)"
                     return
                 }
+                framesWritten++
+                lastWriteAt = System.currentTimeMillis()
             } catch (_: Exception) {
                 return
             }
