@@ -37,7 +37,16 @@ const POLL_SECONDS  = 15;        // uzun bekleyen GET süresi
  * ediyor ve site ayakta kalıyor.
  */
 const MAX_LISTENERS = 8;
-const SHORT_POLL_SECONDS = 1;
+/**
+ * Sınıra takılan isteğin bekleyeceği süre.
+ *
+ * Bir saniyeydi ve bu, korumayı tam tersine çeviriyordu: mekanizma
+ * çalışmadığında her istek bu yola düşüyor ve istemci saniyede bir
+ * soruyordu — 15 saniyelik uzun beklemeye göre on beş kat DAHA ÇOK istek.
+ * Sunucuyu korumak için konan şey sunucuyu dövüyordu. Sahada ölçüldü:
+ * 57 dakikada 227 yerine 3381 sorgu.
+ */
+const SHORT_POLL_SECONDS = 4;
 /** Bu kadar süredir dokunulmayan kanal dosyası siliniyor. */
 const CHANNEL_TTL   = 86400;
 const POLL_SLEEP_US = 40000;     // 40 ms
@@ -76,17 +85,26 @@ function sender_hash(): int {
  * sayacı kalıcı olarak şişirirdi.
  */
 function take_listen_slot() {
+    $opened = 0;
     for ($i = 0; $i < MAX_LISTENERS; $i++) {
         $f = @fopen(DATA_DIR . '/slot' . $i . '.lock', 'c');
         if ($f === false) {
-            return null;
+            // Bu yeri açamadık; diğerlerini denemeye devam. Eskiden burada
+            // pes ediliyordu, yani tek bir izin sorunu bütün istekleri kısa
+            // beklemeye düşürüyordu.
+            continue;
         }
+        $opened++;
         if (flock($f, LOCK_EX | LOCK_NB)) {
             return $f;
         }
         fclose($f);
     }
-    return null;
+    // Hiçbir kilit dosyası açılamadıysa mekanizma çalışmıyor demektir
+    // (bazı paylaşımlı hostinglerde flock ya da yazma izni yok). Bu durumda
+    // kısıtlamak yanlış: koruma diye istemciyi saniyede bir sorduramayız.
+    // Açık tarafa düşüyoruz — eski, sınırsız davranış.
+    return $opened === 0 ? false : null;
 }
 
 /**
@@ -279,9 +297,12 @@ if ($cursor < 0 || $cursor > $size) {
     $cursor = $size;
 }
 
-// Yer varsa uzun bekle, yoksa kısa: sunucu işçileri tükenmesin.
+// Yer varsa uzun bekle; gerçekten kalabalıksa kısa. Mekanizma hiç
+// çalışmıyorsa (false) uzun beklemeye devam: kısıtlama, kısıtlamadığından
+// daha çok yük üretmemeli.
 $slot     = take_listen_slot();
-$deadline = microtime(true) + ($slot === null ? SHORT_POLL_SECONDS : POLL_SECONDS);
+$crowded  = ($slot === null);
+$deadline = microtime(true) + ($crowded ? SHORT_POLL_SECONDS : POLL_SECONDS);
 while (true) {
     clearstatcache(true, $file);
     $size = is_file($file) ? (int) filesize($file) : 0;
@@ -294,7 +315,7 @@ while (true) {
     usleep(POLL_SLEEP_US);
 }
 
-if ($slot !== null) {
+if (is_resource($slot)) {
     flock($slot, LOCK_UN);
     fclose($slot);
 }
@@ -331,6 +352,9 @@ if ($size > $cursor) {
 
 header('Content-Type: application/octet-stream');
 header('Cache-Control: no-store, no-cache');
+// Tanı için: sunucu kaç saniye beklemeye hazırdı ve neden.
+// "uzun" normal, "kalabalik" sınıra takıldı, "kilitsiz" mekanizma yok.
+header('X-Telsiz-Bekleme: ' . ($crowded ? 'kalabalik' : ($slot === false ? 'kilitsiz' : 'uzun')));
 header('Content-Length: ' . (8 + strlen($out)));
 // cevap: [8 bayt yeni imlec][paketler]
 echo pack('P', $cursor) . $out;

@@ -203,6 +203,42 @@ Sınandıktan sonra kapatılan açıklar:
   ayıklanıyor: satır sonu taşıyan bir ad kişi listesini ve tanı metnini
   dağıtıyordu.
 
+### Koruma, koruduğu şeyi dövünce
+
+Sahadan gelen tanı iki ayrı ölçüm taşıyordu ve ikisi de kendi
+düzeltmelerimin yan etkisiydi.
+
+**Röle sorgusu: 57 dakikada 227 yerine 3381.** Sorgu başına 1,01 saniye —
+yani her istek, eşzamanlılık sınırı için koyduğum bir saniyelik kısa
+beklemeye düşüyordu. Sunucudaki kilit dosyaları açılamıyor (bazı paylaşımlı
+hostinglerde `flock` ya da yazma izni yok), kod bunu "kalabalık" sanıp
+kısıtlıyordu. Sonuç: sunucuyu korumak için konan şey, hiç koruma olmayan
+hâlinden **on beş kat fazla** istek üretiyordu.
+
+Düzeltme iki parçalı: mekanizma hiç çalışmıyorsa kısıtlama yok, eski
+davranış sürüyor (yanlış kısıtlamaktansa kısıtlamamak iyidir); gerçekten
+kalabalıksa bekleme 1 değil 4 saniye. Ayrıca tek bir izin sorunu bütün
+yerleri elemiyor artık.
+
+**Ses onarımı: 57 dakikada 49 kez, hepsi "kuyrukta 0 kare".** Yani mikser
+duraklıyordu ama kimse konuşmuyordu — kaybolan ses yoktu. Onarım yine de
+motoru baştan kuruyor, tekrar dinleme tamponunu siliyor ve arada gerçekten
+sessiz kalınıyordu: toplam **291 saniye** boşa giden ses. Onarım, tespit
+ettiği şeyden daha çok zarar veriyordu.
+
+Artık kuyruk boşken duraklama sayılıyor ama onarılmıyor. Ses gelmeye
+başlayınca kuyruk dolacak ve gerçek tıkanma zaten yakalanacak.
+
+Duraklamanın kendi sebebi de ele alındı: ses döngüleri varsayılan
+öncelikte çalışıyordu. 40 ms'de bir kare yetiştirmesi gereken bir döngü
+için bu yanlış; arkaplandaki bir uygulamanın iş parçacığı saniyelerce
+sıraya alınabiliyor ve bu, çıkışın tıkanmasından ayırt edilemiyor. Artık
+Android'in ses için ayırdığı öncelikte çalışıyorlar.
+
+Tanı kartı artık sunucunun bildirdiği bekleme kipini de yazıyor
+(`bekleme uzun / kalabalik / kilitsiz`), böylece bir dahaki sefere sorgu
+sayısı tahmin edilmiyor, soruluyor.
+
 ### "Kapattım ama hâlâ açık"
 
 İki ayrı şey var ve karıştırılması doğal:

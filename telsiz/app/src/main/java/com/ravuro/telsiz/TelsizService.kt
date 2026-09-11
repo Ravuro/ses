@@ -182,6 +182,8 @@ class TelsizService : Service() {
     @Volatile var focusChanges = 0
     @Volatile var lostFocusAt = 0L
     @Volatile var audioStallFixes = 0
+    /** Kuyruk boşken görülen, onarılmasına gerek olmayan tıkanmalar. */
+    @Volatile var idleStalls = 0
     @Volatile private var lastAudioAt = 0L
     @Volatile var swipedAwayAt = 0L
     private var audioFixAt = 0L
@@ -797,6 +799,20 @@ class TelsizService : Service() {
             audioFixWait = AUDIO_FIX_MIN_MS
             return
         }
+
+        // Kuyruk boşken tıkanma zararsız: kimse konuşmuyor, kaybolan ses
+        // yok. Motoru yine de yeniden kurmak katıksız zarar — tekrar dinleme
+        // tamponu siliniyor, mikrofon ve çıkış baştan açılıyor, arada
+        // gerçekten sessiz kalınıyor.
+        //
+        // Sahada ölçüldü: 57 dakikada 49 onarım, hepsi "kuyrukta 0 kare",
+        // toplam 291 saniye boşa giden ses. Onarım, tespit ettiği şeyden
+        // daha çok zarar veriyordu. Ses gelmeye başlayınca kuyruk dolacak
+        // ve gerçek tıkanma zaten burada yakalanacak.
+        if (eng.queuedFrames == 0) {
+            idleStalls++
+            return
+        }
         if (audioFixAt != 0L && now - audioFixAt < audioFixWait) return
 
         audioFixAt = now
@@ -975,6 +991,7 @@ class TelsizService : Service() {
         append(if (prefs.exclusiveAudio) " (sürekli)" else " (kibar)")
         append(" · değişim ").append(focusChanges)
         if (audioStallFixes > 0) append(" · tıkanma onarımı ").append(audioStallFixes)
+        if (idleStalls > 0) append(" · boşta duraklama ").append(idleStalls)
         val l = lan
         append(" · yerel ").append(if (l?.alive == true) "açık" else "DURMUŞ")
         if (l != null) append(" (").append(l.localIp).append(", kurulum ").append(l.rebuilds).append(")")

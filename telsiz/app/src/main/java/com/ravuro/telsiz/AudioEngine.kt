@@ -202,8 +202,19 @@ class AudioEngine(private val onFrame: (ByteArray, Int, Int, Int) -> Unit) {
         running = true
         lastError = null
         lastWriteAt = System.currentTimeMillis()
-        txThread = Thread({ captureLoop() }, "telsiz-tx").apply { isDaemon = true; start() }
-        rxThread = Thread({ playbackLoop() }, "telsiz-rx").apply { isDaemon = true; start() }
+        // Ses döngüleri gerçek zamanlı: 40 ms'de bir kare yetiştirmeleri
+        // gerekiyor. Varsayılan öncelikte, arkaplandaki bir uygulamanın
+        // iş parçacıkları saniyelerce sıraya alınabiliyor ve bu, çıkışın
+        // tıkanmasından ayırt edilemiyor. Android'in ses için ayırdığı
+        // öncelik tam olarak bunun içindir.
+        txThread = Thread({
+            raiseAudioPriority()
+            captureLoop()
+        }, "telsiz-tx").apply { isDaemon = true; start() }
+        rxThread = Thread({
+            raiseAudioPriority()
+            playbackLoop()
+        }, "telsiz-rx").apply { isDaemon = true; start() }
         return true
     }
 
@@ -237,6 +248,16 @@ class AudioEngine(private val onFrame: (ByteArray, Int, Int, Int) -> Unit) {
             transmitting = true
         } catch (e: Exception) {
             lastError = e.message
+        }
+    }
+
+    private fun raiseAudioPriority() {
+        try {
+            android.os.Process.setThreadPriority(
+                android.os.Process.THREAD_PRIORITY_URGENT_AUDIO
+            )
+        } catch (_: Exception) {
+            // Öncelik verilemezse çalışmaya devam; sadece daha kırılgan olur.
         }
     }
 

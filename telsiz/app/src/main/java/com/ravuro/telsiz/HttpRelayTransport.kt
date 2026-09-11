@@ -66,6 +66,13 @@ class HttpRelayTransport(
     @Volatile private var lastFault: String = "-"
 
     /**
+     * Sunucunun bildirdiği bekleme kipi: "uzun" normal, "kalabalik" sınıra
+     * takıldı, "kilitsiz" sunucuda kilit mekanizması yok. Sorgu sayısının
+     * neden yüksek olduğunu tahmin etmek yerine sormak için.
+     */
+    @Volatile private var waitMode: String = "-"
+
+    /**
      * Kaçıncı kuruluşta olduğumuz. Asılı bir soket okuması [Thread.interrupt]
      * ile kesilmiyor; eski iş parçacığı zaman aşımına kadar yaşıyor. Kuşak
      * numarası eskiyi kendiliğinden emekliye ayırıyor, yoksa iki dinleyici
@@ -142,6 +149,7 @@ class HttpRelayTransport(
         append(" · hata ").append(pollFails).append("/").append(postFails)
         append(" · diriltme ").append(revives)
         append(" · gecikme ").append(if (lastRttMs < 0) "-" else lastRttMs.toString() + "ms")
+        append(" · bekleme ").append(waitMode)
         append("\nson cevap ").append(agoText(lastRxAt))
         append(" · son gönderim ").append(agoText(lastTxAt))
         if (lastFault != "-") append("\nson arıza: ").append(lastFault)
@@ -258,6 +266,7 @@ class HttpRelayTransport(
         try {
             val code = c.responseCode
             if (code !in 200..299) throw java.io.IOException("sunucu $code")
+            c.getHeaderField("X-Telsiz-Bekleme")?.let { waitMode = it }
             return readAll(c.inputStream)
         } finally {
             if (gen == generation) pollConn = null
