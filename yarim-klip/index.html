@@ -1,0 +1,2741 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Yarım — Defter Klip</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #080706; color: #e9e3d6; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; }
+  canvas { display: block; width: 100vw; height: 100vh; height: 100dvh; }
+  #start { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: rgba(8, 7, 6, 0.74); z-index: 5; text-align: center; padding: 24px; }
+  #start h1 { font: 600 76px 'Caveat', cursive; margin: 0; color: #efe9dc; }
+  #start p { margin: 0; max-width: 540px; color: #bdb5a6; font-size: 15px; line-height: 1.55; }
+  .btn { border: 0; border-radius: 999px; padding: 11px 22px; font: 600 16px system-ui, sans-serif; background: #efe9dc; color: #1d1a16; cursor: pointer; }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  .btn.ghost { background: rgba(255, 255, 255, 0.12); color: #efe9dc; }
+  #bar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 10px; padding: 12px 14px calc(12px + env(safe-area-inset-bottom)); background: linear-gradient(transparent, rgba(0, 0, 0, 0.78)); z-index: 4; transition: opacity 0.4s; flex-wrap: wrap; }
+  #bar.hide { opacity: 0; }
+  #seek { flex: 1; min-width: 140px; accent-color: #efe9dc; }
+  #time { font: 500 13px ui-monospace, monospace; color: #d8d0c2; min-width: 96px; text-align: center; }
+  #bar .btn { padding: 8px 14px; font-size: 14px; }
+  #sync { position: fixed; right: 16px; top: 16px; width: min(440px, calc(100vw - 32px)); max-height: calc(100vh - 130px); overflow: auto; background: rgba(20, 18, 15, 0.95); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 14px; padding: 16px; z-index: 6; font-size: 14px; line-height: 1.45; }
+  #sync h3 { margin: 0 0 6px; font-size: 16px; }
+  #sync ol { padding-left: 24px; margin: 10px 0; }
+  #sync li.done { color: #8f877a; }
+  #sync li.next { color: #fff; font-weight: 600; }
+  #sync .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  #sync textarea { width: 100%; box-sizing: border-box; height: 110px; margin-top: 8px; background: #0e0d0b; color: #e9e3d6; border: 1px solid #333; border-radius: 8px; font: 12px ui-monospace, monospace; }
+  [hidden] { display: none !important; }
+  body.render #start, body.render #bar, body.render #sync { display: none !important; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="start">
+  <h1>Yarım</h1>
+  <p id="startNote">Karakalem defter klibi hazırlanıyor…</p>
+  <button class="btn" id="startBtn" disabled>▶ Başlat</button>
+</div>
+<div id="bar" hidden>
+  <button class="btn ghost" id="playBtn" type="button">❚❚</button>
+  <span id="time">0:00 / 0:00</span>
+  <input id="seek" type="range" min="0" max="1000" value="0" aria-label="Zaman">
+  <label class="btn ghost" for="songFile">🎵 Şarkını yükle</label>
+  <input id="songFile" type="file" accept="audio/*" hidden>
+  <button class="btn ghost" id="syncBtn" type="button">⏱ Senkron</button>
+</div>
+<div id="sync" hidden></div>
+
+<script>
+'use strict';
+
+/* =====================================================================
+   SABİTLER
+   Sahne 1920x1080 sanal alanda çizilir. Defter sayfası 1580x930'dur.
+   ===================================================================== */
+const W = 1920, H = 1080, FPS = 30;
+const PAGE = { x: 170, y: 95 };
+const PW = 1580, PH = 930;
+const TAU = Math.PI * 2;
+const HAND = "'Caveat', 'Segoe Print', 'Bradley Hand', cursive";
+const PARAMS = new URLSearchParams(location.search);
+const RENDER = PARAMS.has('render');
+const BAR = (60 / 72) * 4;                 // demo müzik: 72 BPM, 4/4
+
+/* =====================================================================
+   YARDIMCILAR
+   ===================================================================== */
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+const range = (t, a, b) => (b === a ? (t >= b ? 1 : 0) : clamp((t - a) / (b - a), 0, 1));
+const easeInOut = (t) => 0.5 - 0.5 * Math.cos(Math.PI * t);
+const easeOut = (t) => 1 - Math.pow(1 - t, 3);
+const easeIn = (t) => t * t * t;
+const P = (x, y) => ({ x, y });
+const dist = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
+const lerpP = (a, b, t) => P(lerp(a.x, b.x, t), lerp(a.y, b.y, t));
+const addv = (a, b, s = 1) => P(a.x + b.x * s, a.y + b.y * s);
+const hash = (n) => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function makeCanvas(w, h) { const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w)); c.height = Math.max(1, Math.round(h)); return c; }
+function pathPoly(ctx, pts) { ctx.beginPath(); pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.closePath(); }
+
+/* =====================================================================
+   ŞARKI: sözler ve zamanlama (her satırın başladığı saniye)
+   Varsayılan zamanlama 72 BPM'lik demo müziğe göredir; kendi şarkın
+   için "⏱ Senkron" ile yeniden kaydedebilirsin.
+   ===================================================================== */
+const CUE_BARS = {
+  v1_1: 4, v1_2: 6, v1_3: 8, v1_4: 10,
+  pc_1: 12, pc_2: 13, pc_3: 14,
+  c1_1: 16, c1_2: 18, c1_3: 20, c1_4: 22, c1_5: 23, c1_6: 24,
+  v2_1: 28, v2_2: 30, v2_3: 32, v2_4: 34, v2_5: 36,
+  c2_1: 38, c2_2: 40, c2_3: 42, c2_4: 44, c2_5: 45, c2_6: 46,
+  br_1: 49, br_2: 51, br_3: 53,
+  out_1: 56, out_2: 58, out_3: 60,
+  end: 62,
+};
+const CUE_ORDER = Object.keys(CUE_BARS);
+const LYRICS = {
+  v1_1: 'Duvardaki saat durmuş, umrumda değil',
+  v1_2: 'Zaten zaman benim için akmıyor ne zamandır.',
+  v1_3: 'Herkes bir yerlere yetişiyor bu şehirde,',
+  v1_4: 'Ben sadece senin bıraktığın o boşluğa bakıyorum.',
+  pc_1: 'Gittiğin günden beri',
+  pc_2: 'Sus pus oldu içimdeki o şenlik.',
+  pc_3: 'Saklandım... Herkesten, en çok da kendimden.',
+  c1_1: 'Yarım kaldım, inkar etmiyorum!',
+  c1_2: 'Biraz kızgınım sana, çokça da yorgun...',
+  c1_3: 'Ne son bir mektup, ne de bir veda sözü;',
+  c1_4: 'Sadece öylece gittin.',
+  c1_5: 'Gittin ve bittik.',
+  c1_6: 'Bittik...',
+  v2_1: 'Denedim unutmayı, denedim başkalarına gülmeyi',
+  v2_2: 'Ama yüzümdeki o sahte maske ağır geldi.',
+  v2_3: 'Sokak lambaları aydınlatmıyor artık yolları,',
+  v2_4: 'İçimde karanlık var, içimde kör bir kuyu.',
+  v2_5: 'Düşüyorum... tutanım yok.',
+  c2_1: 'Yarım kaldım, inkar etmiyorum!',
+  c2_2: 'Biraz kızgınım sana, çokça da yorgun...',
+  c2_3: 'Ne son bir mektup, ne de bir veda sözü;',
+  c2_4: 'Sadece öylece gittin.',
+  c2_5: 'Gittin ve bittik.',
+  c2_6: 'Bittik...',
+  br_1: 'Şimdi sorsalar "pişman mısın?" diye',
+  br_2: 'İnan ki tek bir cevabım bile yok.',
+  br_3: 'Sadece... canım yanıyor.',
+  out_1: 'Öylece gittin...',
+  out_2: 'Yarım kaldım...',
+  out_3: 'Bittik.',
+  end: '(şarkının sonu)',
+};
+
+function defaultCues() {
+  const c = {};
+  for (const k of CUE_ORDER) c[k] = +(CUE_BARS[k] * BAR).toFixed(3);
+  return c;
+}
+function sanitizeCues(obj) {
+  const src = obj && obj.cues ? obj.cues : obj;
+  if (!src || typeof src !== 'object') return null;
+  const c = {};
+  let last = 0;
+  for (const k of CUE_ORDER) {
+    const v = Number(src[k]);
+    if (!isFinite(v) || v < last) return null;
+    c[k] = v;
+    last = v;
+  }
+  return c;
+}
+function loadSavedCues() {
+  try { return sanitizeCues(JSON.parse(localStorage.getItem('yarim-cues') || 'null')); } catch (e) { return null; }
+}
+
+/* =====================================================================
+   DOKULAR (grafit, kâğıt, masa, karton, film greni)
+   ===================================================================== */
+const TEX = {};
+function noiseCanvas(size, seed, fn) {
+  const c = makeCanvas(size, size), g = c.getContext('2d');
+  const id = g.createImageData(size, size), r = mulberry32(seed);
+  for (let i = 0; i < size * size; i++) fn(id.data, i * 4, r);
+  g.putImageData(id, 0, 0);
+  return c;
+}
+function buildTextures() {
+  TEX.graphite = noiseCanvas(256, 3, (d, o, r) => {
+    const v = r();
+    const a = v < 0.1 ? 0.12 + v * 2 : 0.55 + 0.45 * r();
+    d[o] = 38; d[o + 1] = 37; d[o + 2] = 42; d[o + 3] = a * 255;
+  });
+  const paperBase = (col, seed, fib) => {
+    const c = noiseCanvas(512, seed, (d, o, r) => {
+      const n = (r() - 0.5) * 14;
+      d[o] = col[0] + n; d[o + 1] = col[1] + n; d[o + 2] = col[2] + n; d[o + 3] = 255;
+    });
+    const g = c.getContext('2d'), r = mulberry32(seed + 1);
+    for (let i = 0; i < fib; i++) {
+      g.strokeStyle = r() < 0.5 ? 'rgba(110,90,60,0.05)' : 'rgba(255,255,255,0.09)';
+      g.lineWidth = 1;
+      const x = r() * 512, y = r() * 512, a = r() * TAU, l = 4 + r() * 14;
+      g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
+    }
+    return c;
+  };
+  TEX.paper = paperBase([239, 233, 220], 5, 700);
+  TEX.paperBack = paperBase([226, 219, 204], 9, 500);
+  TEX.card = noiseCanvas(512, 11, (d, o, r) => {
+    const n = (r() - 0.5) * 22 + (r() < 0.03 ? 25 : 0);
+    d[o] = 58 + n; d[o + 1] = 54 + n; d[o + 2] = 50 + n; d[o + 3] = 255;
+  });
+  TEX.cardIn = noiseCanvas(512, 12, (d, o, r) => {
+    const n = (r() - 0.5) * 16;
+    d[o] = 176 + n; d[o + 1] = 168 + n; d[o + 2] = 154 + n; d[o + 3] = 255;
+  });
+  const desk = makeCanvas(1024, 512), dg = desk.getContext('2d');
+  dg.fillStyle = '#2a231e';
+  dg.fillRect(0, 0, 1024, 512);
+  const r = mulberry32(21);
+  for (let i = 0; i < 160; i++) {
+    const y0 = r() * 512, a = 2 + r() * 6, f = 0.004 + r() * 0.01, ph = r() * TAU;
+    dg.strokeStyle = r() < 0.5 ? `rgba(0,0,0,${0.08 + r() * 0.12})` : `rgba(120,95,70,${0.05 + r() * 0.08})`;
+    dg.lineWidth = 1 + r() * 2.5;
+    dg.beginPath();
+    for (let x = 0; x <= 1024; x += 16) dg.lineTo(x, y0 + Math.sin(x * f + ph) * a);
+    dg.stroke();
+  }
+  TEX.desk = desk;
+  TEX.grain = [0, 1, 2].map((k) => noiseCanvas(256, 31 + k, (d, o, r2) => {
+    const v = r2() * 255;
+    d[o] = v; d[o + 1] = v; d[o + 2] = v; d[o + 3] = 255;
+  }));
+}
+const PATS = new WeakMap();
+function pat(ctx, name, idx) {
+  let m = PATS.get(ctx);
+  if (!m) { m = {}; PATS.set(ctx, m); }
+  const key = idx === undefined ? name : name + idx;
+  if (!m[key]) m[key] = ctx.createPattern(idx === undefined ? TEX[name] : TEX[name][idx], 'repeat');
+  return m[key];
+}
+
+/* =====================================================================
+   GEOMETRİ
+   ===================================================================== */
+function catmull(pts, closed = false, seg = 8) {
+  const n = pts.length;
+  if (n < 3) return pts.map((p) => P(p.x, p.y));
+  const get = (i) => (closed ? pts[(i + n) % n] : pts[clamp(i, 0, n - 1)]);
+  const out = [];
+  const last = closed ? n : n - 1;
+  for (let i = 0; i < last; i++) {
+    const p0 = get(i - 1), p1 = get(i), p2 = get(i + 1), p3 = get(i + 2);
+    for (let s = 0; s < seg; s++) {
+      const t = s / seg, t2 = t * t, t3 = t2 * t;
+      out.push(P(
+        0.5 * (2 * p1.x + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
+        0.5 * (2 * p1.y + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3)
+      ));
+    }
+  }
+  out.push(closed ? P(pts[0].x, pts[0].y) : P(pts[n - 1].x, pts[n - 1].y));
+  return out;
+}
+function resample(pts, step) {
+  if (pts.length < 2) return pts.map((p) => P(p.x, p.y));
+  const out = [P(pts[0].x, pts[0].y)];
+  let carry = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    const d = dist(a, b);
+    if (d === 0) continue;
+    let s = step - carry;
+    while (s <= d) { out.push(lerpP(a, b, s / d)); s += step; }
+    carry = d - (s - step);
+  }
+  const lastP = pts[pts.length - 1];
+  if (dist(out[out.length - 1], lastP) > 0.5) out.push(P(lastP.x, lastP.y));
+  return out;
+}
+function ellipsePts(cx, cy, rx, ry, o = {}) {
+  const a0 = o.a0 ?? -Math.PI * 0.62, sweep = o.sweep ?? TAU * 1.06, rot = o.rot || 0;
+  const n = Math.max(16, Math.ceil(((rx + ry) * Math.abs(sweep)) / 9));
+  const c = Math.cos(rot), s = Math.sin(rot), ph = o.ph ?? 0.7;
+  const pts = [];
+  for (let i = 0; i <= n; i++) {
+    const a = a0 + (sweep * i) / n;
+    const wob = 1 + (o.wob ?? 0.018) * Math.sin(a * 3 + ph);
+    const x = Math.cos(a) * rx * wob, y = Math.sin(a) * ry * wob;
+    pts.push(P(cx + x * c - y * s, cy + x * s + y * c));
+  }
+  return pts;
+}
+function circlePoly(cx, cy, rx, ry = rx, n = 40) {
+  const pts = [];
+  for (let i = 0; i < n; i++) { const a = (i / n) * TAU; pts.push(P(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry)); }
+  return pts;
+}
+const rectRing = (x, y, w, h) => [P(x, y), P(x + w, y), P(x + w, y + h), P(x, y + h)];
+function zigzag(x0, y0, x1, y1, row) {
+  const pts = [];
+  let k = 0;
+  for (let y = y0; y <= y1 + 0.1; y += row, k++) {
+    if (k % 2 === 0) { pts.push(P(x0, y)); pts.push(P(x1, y + row * 0.5)); }
+    else { pts.push(P(x1, y)); pts.push(P(x0, y + row * 0.5)); }
+  }
+  return pts;
+}
+function scribblePts(cx, cy, rx, ry, n, seed) {
+  const r = mulberry32(seed), pts = [];
+  let a = r() * TAU;
+  for (let i = 0; i < n; i++) {
+    a += 1.9 + r() * 1.6;
+    const k = 0.35 + r() * 0.65;
+    pts.push(P(cx + Math.cos(a) * rx * k, cy + Math.sin(a) * ry * k));
+  }
+  return pts;
+}
+function ik2(s, target, l1, l2, bend = 1) {
+  let dx = target.x - s.x, dy = target.y - s.y;
+  let d = Math.hypot(dx, dy) || 0.001;
+  const maxd = l1 + l2 - 0.01;
+  if (d > maxd) { dx *= maxd / d; dy *= maxd / d; d = maxd; }
+  d = Math.max(d, Math.abs(l1 - l2) + 0.01);
+  const a = (l1 * l1 - l2 * l2 + d * d) / (2 * d);
+  const h = Math.sqrt(Math.max(0, l1 * l1 - a * a));
+  const ux = dx / d, uy = dy / d;
+  return { e: P(s.x + ux * a - uy * h * bend, s.y + uy * a + ux * h * bend), h: P(s.x + dx, s.y + dy) };
+}
+
+/* =====================================================================
+   KARAKALEM ÇİZİM İŞLEMLERİ
+   Her işlem (op) bir geometri ve [t0,t1] zaman aralığı taşır; o aralıkta
+   kademeli olarak çizilir. Silgi işlemleri grafit katmanından siler.
+   ===================================================================== */
+let SEED = 1;
+const nextSeed = () => (SEED = (SEED * 16807) % 2147483647);
+
+function strokeGeom(raw, o = {}) {
+  let pts = o.smooth ? catmull(raw, !!o.closed, 8) : raw.map((p) => P(p.x, p.y));
+  if (o.closed && !o.smooth && pts.length) pts.push(P(pts[0].x, pts[0].y));
+  const ov = o.overshoot ?? 3;
+  if (ov && pts.length >= 2 && !o.closed) {
+    const a = pts[0], b = pts[1], c = pts[pts.length - 1], d = pts[pts.length - 2];
+    const la = dist(a, b) || 1, lc = dist(c, d) || 1;
+    pts.unshift(P(a.x + ((a.x - b.x) / la) * ov * 0.6, a.y + ((a.y - b.y) / la) * ov * 0.6));
+    pts.push(P(c.x + ((c.x - d.x) / lc) * ov, c.y + ((c.y - d.y) / lc) * ov));
+  }
+  pts = resample(pts, o.step || 3);
+  const n = pts.length;
+  const cum = new Float32Array(n);
+  for (let i = 1; i < n; i++) cum[i] = cum[i - 1] + dist(pts[i - 1], pts[i]);
+  const r = mulberry32(o.seed ?? nextSeed());
+  const A = o.jit ?? 1.0;
+  const f1 = 0.02 + r() * 0.03, f2 = 0.07 + r() * 0.05, f3 = 0.025 + r() * 0.03, f4 = 0.09 + r() * 0.05;
+  const p1 = r() * TAU, p2 = r() * TAU, p3 = r() * TAU, p4 = r() * TAU;
+  const nx = new Float32Array(n), ny = new Float32Array(n), j1 = new Float32Array(n), j2 = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(n - 1, i + 1)];
+    const dx = b.x - a.x, dy = b.y - a.y, l = Math.hypot(dx, dy) || 1;
+    nx[i] = -dy / l; ny[i] = dx / l;
+    const s = cum[i];
+    j1[i] = A * (0.7 * Math.sin(s * f1 + p1) + 0.3 * Math.sin(s * f2 + p2));
+    j2[i] = A * 1.6 * (0.6 * Math.sin(s * f3 + p3) + 0.4 * Math.sin(s * f4 + p4));
+  }
+  return { pts, cum, len: cum[n - 1] || 1, nx, ny, j1, j2, w: o.w ?? 2.2, dark: o.dark ?? 0.82, erase: !!o.erase, double: o.double !== false };
+}
+function strokeCount(g, f) {
+  const n = g.pts.length;
+  if (f >= 1) return n;
+  const L = g.len * f;
+  let m = 1;
+  while (m < n && g.cum[m] <= L) m++;
+  return Math.max(2, m);
+}
+function drawStrokeGeom(ctx, g, f, alpha = 1) {
+  if (f <= 0 || g.pts.length < 2) return;
+  const m = strokeCount(g, f), n = g.pts.length, pts = g.pts;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  if (g.erase) { ctx.globalCompositeOperation = 'destination-out'; ctx.strokeStyle = '#000'; }
+  else ctx.strokeStyle = pat(ctx, 'graphite');
+  const K = m > 14 ? 3 : 1;
+  for (let k = 0; k < K; k++) {
+    const i0 = Math.floor((k * (m - 1)) / K), i1 = Math.floor(((k + 1) * (m - 1)) / K);
+    const u = (i0 + i1) / 2 / (n - 1);
+    const pr = u < 0.12 ? lerp(0.55, 1, u / 0.12) : u > 0.88 ? lerp(1, 0.6, (u - 0.88) / 0.12) : 1;
+    ctx.globalAlpha = g.dark * alpha * (g.erase ? 1 : 1);
+    ctx.lineWidth = g.w * pr;
+    ctx.beginPath();
+    for (let i = i0; i <= i1; i++) {
+      const x = pts[i].x + g.nx[i] * g.j1[i], y = pts[i].y + g.ny[i] * g.j1[i];
+      if (i === i0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  if (g.double && !g.erase) {
+    ctx.globalAlpha = g.dark * alpha * 0.35;
+    ctx.lineWidth = g.w * 0.6;
+    ctx.beginPath();
+    for (let i = 0; i < m; i++) {
+      const x = pts[i].x + g.nx[i] * g.j2[i], y = pts[i].y + g.ny[i] * g.j2[i];
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+}
+function strokeTip(g, f) {
+  const i = Math.min(g.pts.length - 1, strokeCount(g, f) - 1);
+  return P(g.pts[i].x + g.nx[i] * g.j1[i], g.pts[i].y + g.ny[i] * g.j1[i]);
+}
+
+function hatchGeom(rings, o = {}) {
+  const lines = [];
+  const r = mulberry32(o.seed ?? nextSeed());
+  const base = o.angle ?? 45;
+  const angles = [base];
+  if (o.cross) angles.push(base + (o.crossAngle ?? 90));
+  angles.forEach((ang, ai) => {
+    const a = (ang * Math.PI) / 180, ca = Math.cos(a), sa = Math.sin(a);
+    const R = rings.map((ring) => ring.map((p) => P(p.x * ca + p.y * sa, -p.x * sa + p.y * ca)));
+    let ymin = Infinity, ymax = -Infinity;
+    for (const ring of R) for (const p of ring) { ymin = Math.min(ymin, p.y); ymax = Math.max(ymax, p.y); }
+    const sp = Math.max(2.2, (o.spacing ?? 7) * (ai ? o.crossSpacing ?? 1.2 : 1));
+    for (let y = ymin + sp * r(); y < ymax; y += sp * (0.8 + 0.4 * r())) {
+      const xs = [];
+      for (const ring of R) {
+        for (let i = 0; i < ring.length; i++) {
+          const p = ring[i], q = ring[(i + 1) % ring.length];
+          if ((p.y <= y && q.y > y) || (q.y <= y && p.y > y)) xs.push(p.x + ((y - p.y) / (q.y - p.y)) * (q.x - p.x));
+        }
+      }
+      xs.sort((u, v) => u - v);
+      for (let k = 0; k + 1 < xs.length; k += 2) {
+        const inset = o.inset ?? 3;
+        const x1 = xs[k] + r() * inset, x2 = xs[k + 1] - r() * inset;
+        if (x2 - x1 < 2) continue;
+        const y1 = y + (r() - 0.5) * 1.6, y2 = y + (r() - 0.5) * 1.6;
+        lines.push([x1 * ca - y1 * sa, x1 * sa + y1 * ca, x2 * ca - y2 * sa, x2 * sa + y2 * ca, r() < 0.45]);
+      }
+    }
+  });
+  return { lines, w: o.w ?? 1.25, dark: o.dark ?? 0.5, erase: !!o.erase };
+}
+function drawHatchGeom(ctx, g, f, alpha = 1) {
+  const n = Math.min(g.lines.length, Math.floor(g.lines.length * f + 1e-6));
+  if (n <= 0) return;
+  ctx.lineCap = 'round';
+  ctx.lineWidth = g.w;
+  if (g.erase) { ctx.globalCompositeOperation = 'destination-out'; ctx.strokeStyle = '#000'; }
+  else ctx.strokeStyle = pat(ctx, 'graphite');
+  for (const light of [false, true]) {
+    ctx.globalAlpha = g.dark * alpha * (light ? 0.7 : 1);
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) {
+      const l = g.lines[i];
+      if (l[4] !== light) continue;
+      ctx.moveTo(l[0], l[1]);
+      ctx.lineTo(l[2], l[3]);
+    }
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+}
+function hatchTip(g, f) {
+  const n = g.lines.length;
+  if (!n) return P(0, 0);
+  const x = clamp(f, 0, 0.9999) * n, i = Math.floor(x), u = x - i;
+  const l = g.lines[i];
+  return i % 2 ? P(lerp(l[2], l[0], u), lerp(l[3], l[1], u)) : P(lerp(l[0], l[2], u), lerp(l[1], l[3], u));
+}
+
+const MEASURE = makeCanvas(8, 8).getContext('2d');
+function textGeom(str, x, y, o = {}) {
+  const size = o.size || 52, weight = o.weight || 600;
+  const font = `${weight} ${size}px ${HAND}`;
+  MEASURE.font = font;
+  const w = MEASURE.measureText(str).width;
+  const align = o.align || 'center';
+  const x0 = align === 'center' ? x - w / 2 : align === 'right' ? x - w : x;
+  return { str, x0, y, w, size, font, dark: o.dark ?? 0.86, erase: !!o.erase, rot: o.rot || 0 };
+}
+function drawTextGeom(ctx, g, f, alpha = 1) {
+  if (f <= 0) return;
+  ctx.save();
+  if (g.rot) { ctx.translate(g.x0, g.y); ctx.rotate(g.rot); ctx.translate(-g.x0, -g.y); }
+  ctx.beginPath();
+  ctx.rect(g.x0 - g.size * 0.4, g.y - g.size * 1.3, (g.w + g.size * 0.8) * f, g.size * 2);
+  ctx.clip();
+  ctx.font = g.font;
+  ctx.textBaseline = 'alphabetic';
+  if (g.erase) { ctx.globalCompositeOperation = 'destination-out'; ctx.fillStyle = '#000'; ctx.globalAlpha = 0.93 * alpha; }
+  else { ctx.fillStyle = pat(ctx, 'graphite'); ctx.globalAlpha = g.dark * alpha; }
+  ctx.fillText(g.str, g.x0, g.y);
+  ctx.restore();
+}
+function textTip(g, f) {
+  const x = g.x0 - g.size * 0.2 + (g.w + g.size * 0.3) * clamp(f, 0, 1);
+  const y = g.y - g.size * 0.3 + Math.sin(f * g.w * 0.09) * g.size * 0.17;
+  if (!g.rot) return P(x, y);
+  const c = Math.cos(g.rot), s = Math.sin(g.rot), dx = x - g.x0, dy = y - g.y;
+  return P(g.x0 + dx * c - dy * s, g.y + dx * s + dy * c);
+}
+
+function eraseGeom(raw, o = {}) {
+  const pts = resample(o.smooth ? catmull(raw, false, 6) : raw, 4);
+  const cum = new Float32Array(pts.length);
+  for (let i = 1; i < pts.length; i++) cum[i] = cum[i - 1] + dist(pts[i - 1], pts[i]);
+  return { pts, cum, len: cum[pts.length - 1] || 1, r: o.r || 30, smear: o.smear ?? 0.035 };
+}
+function drawEraseGeom(ctx, g, f) {
+  const m = strokeCount(g, f);
+  if (m < 2) return;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  for (let i = 0; i < m; i++) (i ? ctx.lineTo(g.pts[i].x, g.pts[i].y) : ctx.moveTo(g.pts[i].x, g.pts[i].y));
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.strokeStyle = '#000';
+  ctx.globalAlpha = 0.35; ctx.lineWidth = g.r * 2.5; ctx.stroke();
+  ctx.globalAlpha = 0.92; ctx.lineWidth = g.r * 1.9; ctx.stroke();
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.strokeStyle = pat(ctx, 'graphite');
+  ctx.globalAlpha = g.smear; ctx.lineWidth = g.r * 1.7; ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+function toneGeom(rings, o = {}) { return { rings, dark: o.dark ?? 0.3, blur: o.blur ?? 10, erase: !!o.erase }; }
+function drawToneGeom(ctx, g, f) {
+  ctx.save();
+  const m = ctx.getTransform();
+  ctx.filter = `blur(${Math.max(0.5, g.blur * Math.hypot(m.a, m.b))}px)`;
+  if (g.erase) { ctx.globalCompositeOperation = 'destination-out'; ctx.fillStyle = '#000'; }
+  else ctx.fillStyle = pat(ctx, 'graphite');
+  ctx.globalAlpha = g.dark * f;
+  if (g.erase) {
+    for (const ring of g.rings) { pathPoly(ctx, ring); ctx.fill(); }
+  } else {
+    ctx.beginPath();
+    for (const ring of g.rings) ring.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+    ctx.fill('evenodd');
+  }
+  ctx.restore();
+}
+
+function drawOp(ctx, op, f) {
+  switch (op.kind) {
+    case 'stroke': drawStrokeGeom(ctx, op.g, f); break;
+    case 'hatch': drawHatchGeom(ctx, op.g, f); break;
+    case 'text': drawTextGeom(ctx, op.g, f); break;
+    case 'erase': drawEraseGeom(ctx, op.g, f); break;
+    case 'tone': drawToneGeom(ctx, op.g, f); break;
+  }
+}
+function opTip(op, f) {
+  switch (op.kind) {
+    case 'stroke': return strokeTip(op.g, f);
+    case 'hatch': return hatchTip(op.g, f);
+    case 'text': return textTip(op.g, f);
+    case 'erase': return op.g.pts[Math.min(op.g.pts.length - 1, strokeCount(op.g, f) - 1)];
+    case 'hover': return op.g.p;
+    default: return P(PW / 2, PH / 2);
+  }
+}
+
+// Çizim tarifleri (spec) — Builder bunları zaman çizelgesine yerleştirir.
+const sk = {
+  line: (a, b, o = {}) => ({ type: 'stroke', pts: [a, b], ...o }),
+  poly: (pts, o = {}) => ({ type: 'stroke', pts, ...o }),
+  curve: (pts, o = {}) => ({ type: 'stroke', pts, smooth: true, ...o }),
+  ellipse: (cx, cy, rx, ry, o = {}) => ({ type: 'stroke', pts: ellipsePts(cx, cy, rx, ry, o), overshoot: 0, ...o }),
+  rect: (x, y, w, h, o = {}) => [
+    sk.line(P(x, y), P(x + w, y), o), sk.line(P(x + w, y), P(x + w, y + h), o),
+    sk.line(P(x + w, y + h), P(x, y + h), o), sk.line(P(x, y + h), P(x, y), o),
+  ],
+  hatch: (rings, o = {}) => ({ type: 'hatch', rings: Array.isArray(rings[0]) ? rings : [rings], ...o }),
+  text: (str, x, y, o = {}) => ({ type: 'text', str, x, y, ...o }),
+  erase: (pts, o = {}) => ({ type: 'erase', pts, ...o }),
+  tone: (rings, o = {}) => ({ type: 'tone', rings: Array.isArray(rings[0]) ? rings : [rings], ...o }),
+  hover: (p, dur, taps = 2) => ({ type: 'hover', p, dur, taps }),
+};
+
+/* =====================================================================
+   FİGÜRLER — basit iskelet (ileri kinematik) + karakalem kontur ve tarama
+   Açılar derece: 0 yukarı, 90 sağ, 180 aşağı.
+   ===================================================================== */
+const dirv = (a) => { const r = (a * Math.PI) / 180; return P(Math.sin(r), -Math.cos(r)); };
+
+function fk(p) {
+  const side = p.view === 'side';
+  const O = P(0, 0);
+  const tA = p.torso || 0;
+  const up = dirv(tA);
+  const perp = P(Math.cos((tA * Math.PI) / 180), Math.sin((tA * Math.PI) / 180));
+  const chest = addv(O, up, 150);
+  const nA = tA + (p.neck || 0);
+  const neck = addv(chest, dirv(nA), 20);
+  const hA = nA + (p.head || 0);
+  const head = addv(neck, dirv(hA), 34 - (p.bow || 0) * 8);
+  const sw = side ? 7 : 46, hw = side ? 5 : 27;
+  const sL = addv(chest, perp, -sw), sR = addv(chest, perp, sw);
+  const arm = (s, ang, tgt, bend) => {
+    if (tgt) { const r = ik2(s, tgt, 90, 82, bend); return [r.e, r.h]; }
+    const e = addv(s, dirv(ang[0]), 90);
+    return [e, addv(e, dirv(ang[1]), 82)];
+  };
+  const [eL, hL] = arm(sL, p.lArm || [186, 181], p.lTarget, p.lBend ?? -1);
+  const [eR, hR] = arm(sR, p.rArm || [174, 179], p.rTarget, p.rBend ?? 1);
+  const hipL = addv(O, perp, -hw), hipR = addv(O, perp, hw);
+  const leg = (hip, a) => {
+    const k = addv(hip, dirv(a[0]), 120), an = addv(k, dirv(a[1]), 114);
+    return [k, an, addv(an, dirv(a[2] ?? (side ? 90 : 180)), side ? 34 : 12)];
+  };
+  const [kL, aL, tL] = leg(hipL, p.lLeg || [182, 180]);
+  const [kR, aR, tR] = leg(hipR, p.rLeg || [178, 180]);
+  return { side, O, chest, neck, head, hA, tA, perp, up, sL, sR, eL, hL, eR, hR, hipL, hipR, kL, aL, tL, kR, aR, tR };
+}
+
+const POSES = {
+  stand: { view: 'front' },
+  standBack: { view: 'front', lArm: [190, 185], rArm: [172, 177], lLeg: [184, 179], rLeg: [176, 181] },
+  sitWall: { view: 'side', torso: -6, neck: 36, head: 26, lArm: [132, 116], rArm: [126, 110], lLeg: [50, 166, 95], rLeg: [56, 170, 95] },
+  hug: { view: 'side', torso: 24, neck: 34, head: 26, lArm: [150, 30], rArm: [146, 26], lLeg: [36, 172, 95], rLeg: [42, 176, 95] },
+  sitChair: { view: 'side', torso: -6, neck: -14, head: -16, lArm: [150, 96], rArm: [144, 92], lLeg: [94, 178, 90], rLeg: [99, 182, 90] },
+  fall: { view: 'side', torso: 8, neck: -24, head: -14, lArm: [-36, -18], rArm: [22, 6], lLeg: [150, 214, 95], rLeg: [196, 232, 95] },
+};
+function walkPose(ph, o = {}) {
+  const s = Math.sin(ph), c = Math.cos(ph), sw = o.stride ?? 24;
+  const thR = 180 - sw * s, thL = 180 + sw * s;
+  const shR = thR + 34 * Math.max(0, c), shL = thL + 34 * Math.max(0, -c);
+  const uR = 180 + 20 * s, uL = 180 - 20 * s;
+  return {
+    view: 'side', torso: o.lean ?? 4, neck: o.neck ?? 8, head: o.head ?? 6,
+    lArm: [uL, uL - 16], rArm: [uR, uR - 16], lLeg: [thL, shL, 92], rLeg: [thR, shR, 92],
+  };
+}
+const walkBob = (ph) => -5 * Math.abs(Math.cos(ph));
+
+// Figür parçalarını (yerel koordinatta) üretir: çizgiler + tarama bölgeleri
+function figureShapes(J, st) {
+  const S = { strokes: [], hatches: [], fills: [] };
+  const Wd = st.w ?? 2.3;
+  const add = (pts, o = {}) => S.strokes.push({ pts, w: Wd, ...o });
+  const side = J.side, back = !!st.back;
+  const hc = J.head;
+  const hr = ((side ? J.hA : J.hA * 0.35) * Math.PI) / 180;
+  const rx = 25, ry = 31;
+  const HP = (x, y) => P(hc.x + x * Math.cos(hr) - y * Math.sin(hr), hc.y + x * Math.sin(hr) + y * Math.cos(hr));
+  const onHead = (th, k) => HP(Math.sin((th * Math.PI) / 180) * rx * k, -Math.cos((th * Math.PI) / 180) * ry * k);
+  const perp = J.perp, up = J.up;
+  const off = (p, k) => P(p.x + perp.x * k, p.y + perp.y * k);
+
+  // baş
+  const headPts = [];
+  for (let i = 0; i <= 44; i++) headPts.push(onHead(-200 + (i * 400) / 44, 1 + 0.02 * Math.sin(i)));
+  add(headPts);
+  S.fills.push(headPts);
+
+  // saç
+  const hairRing = [];
+  const strands = [];
+  const long = st.hair === 'long';
+  if (side) {
+    for (let th = -170; th <= 52; th += 12) hairRing.push(onHead(th, 1.13 + 0.04 * Math.sin(th)));
+    hairRing.push(onHead(55, 0.96), onHead(24, 0.78), HP(-2, -ry * 0.22), HP(-rx * 0.55, ry * 0.3));
+    if (long) hairRing.splice(0, 0, HP(-rx * 0.2, ry * 2.4), HP(-rx * 1.1, ry * 2.8), HP(-rx * 1.35, ry * 1.2));
+    else hairRing.push(onHead(-170, 1.0));
+    for (let k = 0; k < 6; k++) { const th = -130 + k * 26; strands.push([onHead(th, 0.95), onHead(th + 8, 1.28)]); }
+  } else if (back) {
+    for (let th = -128; th <= 128; th += 10) hairRing.push(onHead(th, 1.1 + 0.03 * Math.sin(th * 0.2)));
+    if (long) hairRing.push(HP(rx * 1.3, ry * 1.2), HP(rx * 1.2, ry * 3.3), HP(0, ry * 3.6), HP(-rx * 1.2, ry * 3.3), HP(-rx * 1.3, ry * 1.2));
+    else hairRing.push(HP(rx * 0.75, ry * 0.78), HP(0, ry * 0.9), HP(-rx * 0.75, ry * 0.78));
+    for (let k = 0; k < (long ? 7 : 6); k++) { const x = -rx * 0.8 + (k * rx * 1.6) / 6; strands.push(long ? [HP(x * 0.6, -ry * 0.9), HP(x, ry * 0.8), HP(x * 1.1, ry * 3.0)] : [HP(x * 0.5, -ry * 0.95), HP(x, ry * 0.5)]); }
+  } else {
+    for (let th = -104; th <= 104; th += 10) hairRing.push(onHead(th, 1.12 + 0.03 * Math.sin(th * 0.3)));
+    if (long) {
+      hairRing.push(HP(rx * 1.35, ry * 0.9), HP(rx * 1.3, ry * 2.6), HP(rx * 0.75, ry * 2.8), HP(rx * 0.86, ry * 0.4), HP(rx * 0.6, -ry * 0.45), HP(0, -ry * 0.62), HP(-rx * 0.6, -ry * 0.45), HP(-rx * 0.86, ry * 0.4), HP(-rx * 0.75, ry * 2.8), HP(-rx * 1.3, ry * 2.6), HP(-rx * 1.35, ry * 0.9));
+      strands.push([HP(-rx * 1.1, ry * 0.2), HP(-rx * 1.15, ry * 2.4)], [HP(rx * 1.1, ry * 0.2), HP(rx * 1.15, ry * 2.4)]);
+    } else {
+      for (let k = 0; k <= 8; k++) { const x = rx * 0.95 - (k * rx * 1.9) / 8; hairRing.push(HP(x, -ry * (k % 2 ? 0.28 : 0.4))); }
+      for (let k = 0; k < 5; k++) { const th = -60 + k * 30; strands.push([onHead(th, 0.9), onHead(th + 6, 1.25)]); }
+    }
+  }
+  add(hairRing, { closed: true, w: Wd * 0.9, overshoot: 0 });
+  S.fills.push(hairRing);
+  for (const s of strands) add(s, { smooth: s.length > 2, w: Wd * 0.6, dark: 0.7 });
+  S.hatches.push({ rings: [hairRing], angle: long ? 18 : 62, spacing: long ? 4.2 : 3.4, dark: (long ? 0.5 : 0.72) * (st.hairDark ?? 1), cross: !long });
+
+  // yüz
+  const fw = Wd * 0.7;
+  if (!back) {
+    const face = st.face || 'sad';
+    if (!side) {
+      for (const s of [-1, 1]) {
+        if (face === 'laugh' || face === 'smile') add([HP(s * 11 - 5, 3), HP(s * 11, -1), HP(s * 11 + 5, 3)], { w: fw });
+        else add([HP(s * 11 - 5, 1), HP(s * 11, 3.5), HP(s * 11 + 5, 1)], { w: fw });
+        if (face === 'sad') add([HP(s * 17, -8), HP(s * 6, -12)], { w: fw * 0.9, dark: 0.7 });
+      }
+      add([HP(1, 3), HP(-2, 10), HP(2, 11)], { w: fw * 0.8, dark: 0.6 });
+      if (face === 'laugh') add([HP(-8, 15), HP(0, 24), HP(8, 15), HP(-8, 15)], { w: fw });
+      else if (face === 'smile') add([HP(-7, 16), HP(0, 20), HP(7, 16)], { w: fw });
+      else add([HP(-6, 19), HP(0, 17), HP(6, 19)], { w: fw });
+    } else {
+      if (face === 'laugh' || face === 'smile') add([HP(9, 0), HP(14, -3), HP(19, 0)], { w: fw });
+      else add([HP(9, 0), HP(14, 2.5), HP(19, 0.5)], { w: fw });
+      add([HP(rx * 0.96, -4), HP(rx * 1.16, 7), HP(rx * 0.95, 10)], { w: fw * 0.9 });
+      if (face === 'laugh') add([HP(14, 15), HP(22, 22), HP(25, 15)], { w: fw });
+      else add([HP(15, 19), HP(22, 18)], { w: fw });
+      if (!long) add(ellipsePts(hc.x, hc.y, 5, 7, { rot: hr }).map((p) => P(p.x - 3 * Math.cos(hr), p.y - 3 * Math.sin(hr))), { w: fw * 0.8, dark: 0.55 });
+    }
+  }
+
+  // boyun
+  const nb = lerpP(J.neck, J.chest, 0.55);
+  if (side) { add([HP(6, ry * 0.9), off(nb, 9)], { w: Wd * 0.8 }); add([HP(-12, ry * 0.75), off(nb, -10)], { w: Wd * 0.8 }); }
+  else if (!(back && long)) { add([HP(-9, ry * 0.9), off(nb, -10)], { w: Wd * 0.8 }); add([HP(9, ry * 0.9), off(nb, 10)], { w: Wd * 0.8 }); }
+
+  // gövde
+  const coat = st.outfit === 'coat';
+  let torsoRing;
+  if (!side) {
+    const sl = off(J.sL, -6), sr = off(J.sR, 6);
+    const wl = off(lerpP(J.sL, J.hipL, 0.55), -6), wr = off(lerpP(J.sR, J.hipR, 0.55), 6);
+    let bl = off(J.hipL, -8), br = off(J.hipR, 8);
+    if (coat) { bl = off(lerpP(J.hipL, J.kL, 0.85), -22); br = off(lerpP(J.hipR, J.kR, 0.85), 22); }
+    add([off(nb, -12), sl, wl, off(J.hipL, -8), bl], { smooth: true });
+    add([off(nb, 12), sr, wr, off(J.hipR, 8), br], { smooth: true });
+    add([bl, addv(lerpP(bl, br, 0.5), up, -3), br], { smooth: true });
+    if (!back) {
+      if (coat) add([addv(nb, up, -8), addv(lerpP(bl, br, 0.5), up, 2)], { w: Wd * 0.7, dark: 0.6 });
+      else { add([addv(off(nb, -17), up, 5), addv(nb, up, -10), addv(off(nb, 17), up, 5)], { smooth: true }); add([addv(off(nb, -5), up, -6), addv(off(nb, -6), up, -30)], { w: Wd * 0.6 }); add([addv(off(nb, 5), up, -6), addv(off(nb, 6), up, -28)], { w: Wd * 0.6 }); }
+    } else if (!coat) add([addv(off(nb, -20), up, 2), addv(nb, up, 14), addv(off(nb, 20), up, 2)], { smooth: true });
+    torsoRing = [off(nb, -12), sl, wl, off(J.hipL, -8), bl, br, off(J.hipR, 8), wr, sr, off(nb, 12)];
+  } else {
+    const front = [off(J.neck, 9), off(J.chest, 24), off(lerpP(J.chest, J.O, 0.55), 21), off(J.O, 20)];
+    const backC = [off(J.neck, -10), off(J.chest, -23), off(lerpP(J.chest, J.O, 0.5), -21), off(J.O, -24)];
+    add(front, { smooth: true });
+    add(backC, { smooth: true });
+    add([off(J.O, -24), off(J.O, 20)], {});
+    add([addv(off(J.neck, -12), up, 4), addv(off(J.neck, -20), up, -18), off(J.chest, -22)], { smooth: true, w: Wd * 0.7 });
+    torsoRing = [...front, ...backC.slice().reverse()];
+  }
+  S.fills.push(torsoRing);
+  S.hatches.push({ rings: [torsoRing], angle: coat ? 35 : 52, spacing: coat ? 9 : 5.6, dark: coat ? 0.24 : 0.42 });
+
+  // uzuvlar
+  const limb = (chain, widths, hatch) => {
+    const c = resample(catmull(chain, false, 6), 5);
+    const seg = [0];
+    for (let k = 1; k < chain.length; k++) seg.push(seg[k - 1] + dist(chain[k - 1], chain[k]));
+    const total = seg[seg.length - 1] || 1;
+    const cum = [0];
+    for (let i = 1; i < c.length; i++) cum.push(cum[i - 1] + dist(c[i - 1], c[i]));
+    const cl = cum[cum.length - 1] || 1;
+    const wAt = (u) => {
+      const d = u * total;
+      for (let k = 1; k < seg.length; k++) if (d <= seg[k]) return lerp(widths[k - 1], widths[k], (d - seg[k - 1]) / (seg[k] - seg[k - 1] || 1));
+      return widths[widths.length - 1];
+    };
+    const L = [], R = [];
+    for (let i = 0; i < c.length; i++) {
+      const a = c[Math.max(0, i - 1)], b = c[Math.min(c.length - 1, i + 1)];
+      const dx = b.x - a.x, dy = b.y - a.y, l = Math.hypot(dx, dy) || 1;
+      const w = wAt(cum[i] / cl);
+      L.push(P(c[i].x - (dy / l) * w, c[i].y + (dx / l) * w));
+      R.push(P(c[i].x + (dy / l) * w, c[i].y - (dx / l) * w));
+    }
+    add(L, { overshoot: 2 });
+    add(R, { overshoot: 2 });
+    S.fills.push([...L, ...R.slice().reverse()]);
+    if (hatch) S.hatches.push({ rings: [[...L, ...R.slice().reverse()]], ...hatch });
+  };
+  const sleeve = coat ? { angle: 35, spacing: 9, dark: 0.22 } : { angle: 52, spacing: 5.6, dark: 0.4 };
+  const jeans = { angle: 72, spacing: 7.5, dark: 0.3 };
+  const legs = [[J.hipL, J.kL, J.aL], [J.hipR, J.kR, J.aR]];
+  const arms = [[J.sL, J.eL, J.hL], [J.sR, J.eR, J.hR]];
+  if (!st.noLegs) {
+    for (const [hip, k, a] of legs) {
+      if (coat) limb([lerpP(hip, k, 0.82), k, a], [11, 10, 7.5], null);
+      else limb([hip, k, a], [17, 12.5, 8.5], jeans);
+    }
+  }
+  for (const [s, e, h] of arms) limb([s, e, h], coat ? [12, 9.5, 7] : [12.5, 9.5, 7], sleeve);
+  for (const [, e, h] of arms) {
+    const d = dist(e, h) || 1, ux = (h.x - e.x) / d, uy = (h.y - e.y) / d;
+    add(ellipsePts(h.x + ux * 5, h.y + uy * 5, 8.5, 6.5, { rot: Math.atan2(uy, ux) }), { w: Wd * 0.85 });
+  }
+  if (!st.noLegs) {
+    for (const [, k, a, tt] of [[0, J.kL, J.aL, J.tL], [0, J.kR, J.aR, J.tR]]) {
+      if (side) {
+        const d = dist(a, tt) || 1, ux = (tt.x - a.x) / d, uy = (tt.y - a.y) / d;
+        let nx = -uy, ny = ux;
+        if (ny > 0) { nx = -nx; ny = -ny; }
+        add([P(a.x - ux * 8 + nx * 7, a.y - uy * 8 + ny * 7), P(tt.x + nx * 5, tt.y + ny * 5), P(tt.x + ux * 5 - nx * 1, tt.y + uy * 5 - ny * 1), P(tt.x - nx * 5, tt.y - ny * 5), P(a.x - ux * 10 - nx * 5, a.y - uy * 10 - ny * 5)], { closed: true, smooth: true, overshoot: 0 });
+      } else add(ellipsePts(a.x, a.y + 7, 12, 6), { w: Wd * 0.9 });
+    }
+  }
+  return S;
+}
+
+function xfPoint(p, xf) {
+  const fx = xf.flip ? -p.x : p.x;
+  const r = xf.rot || 0, c = Math.cos(r), s = Math.sin(r);
+  return P(xf.x + (fx * c - p.y * s) * xf.s, xf.y + (fx * s + p.y * c) * xf.s);
+}
+// Figürü Builder'a verilecek çizim tariflerine dönüştürür (sayfa koordinatı)
+function figureSpecs(J, st, xf) {
+  const sh = figureShapes(J, st);
+  const wk = 0.55 + 0.45 * Math.min(1.2, xf.s);
+  const dk = st.dark ?? 1;
+  const strokes = sh.strokes.map((s) => ({ type: 'stroke', ...s, pts: s.pts.map((p) => xfPoint(p, xf)), w: s.w * wk, dark: (s.dark ?? 0.84) * dk, speed: 1300 }));
+  const hatches = st.noHatch ? [] : sh.hatches.map((h) => ({ type: 'hatch', ...h, rings: h.rings.map((r) => r.map((p) => xfPoint(p, xf))), dark: h.dark * dk, spacing: Math.max(3, h.spacing * Math.max(0.75, xf.s)), lineTime: 0.006 }));
+  const knock = st.knock ? [{ type: 'tone', rings: sh.fills.map((r) => r.map((p) => xfPoint(p, xf))), erase: true, blur: 1.2, dark: 1, dur: 0.04, noTool: true }] : [];
+  return [...knock, ...strokes, ...hatches];
+}
+// Hareketli figürleri her karede doğrudan çizer
+function drawFigureNow(ctx, J, st, xf, alpha = 1, seed = 1) {
+  const specs = figureSpecs(J, st, xf);
+  let k = 0;
+  for (const s of specs) {
+    k++;
+    if (s.type === 'stroke') drawStrokeGeom(ctx, strokeGeom(s.pts, { ...s, seed: seed * 97 + k }), 1, alpha);
+    else drawHatchGeom(ctx, hatchGeom(s.rings, { ...s, seed: seed * 131 + k }), 1, alpha);
+  }
+}
+function figureLocal(J, name) { return J[name]; }
+
+/* =====================================================================
+   SAYFA ve OLUŞTURUCU (Builder)
+   ===================================================================== */
+class Page {
+  constructor(id, kind = 'paper') {
+    this.id = id;
+    this.kind = kind;
+    this.ops = [];
+    this.dyn = [];
+    this.cuts = [];
+    this.removedAt = Infinity;
+    this.returnsAt = Infinity;
+  }
+  shapeAt(t) { let s = null; for (const c of this.cuts) if (c.t <= t) s = c.poly; return s; }
+  presentAt(t) { return t < this.removedAt || t >= this.returnsAt; }
+}
+
+class Builder {
+  constructor(page, S) { this.page = page; this.S = S; }
+  add(kind, g, t0, t1, tool) {
+    const op = { kind, g, t0, t1: Math.max(t1, t0 + 0.001), tool: tool || null, page: this.page };
+    this.page.ops.push(op);
+    if (op.tool) this.S.toolOps.push(op);
+    return op;
+  }
+  geom(s) {
+    switch (s.type) {
+      case 'stroke': return strokeGeom(s.pts, s);
+      case 'hatch': return hatchGeom(s.rings, s);
+      case 'text': return textGeom(s.str, s.x, s.y, s);
+      case 'erase': return eraseGeom(s.pts, s);
+      case 'tone': return toneGeom(s.rings, s);
+      case 'hover': return { p: s.p, taps: s.taps || 2 };
+    }
+    return null;
+  }
+  weight(kind, g, s) {
+    if (s.dur) return s.dur;
+    switch (kind) {
+      case 'stroke': return 0.04 + g.len / (s.speed || 950);
+      case 'hatch': return 0.06 + g.lines.length * (s.lineTime ?? 0.01);
+      case 'text': return 0.25 + g.str.length * 0.075;
+      case 'erase': return 0.1 + g.len / 2600;
+      case 'tone': return 0.4;
+      default: return 1;
+    }
+  }
+  // Tarifleri [t0, t1] aralığına sırayla yerleştirir; t1 verilmezse doğal hızda çizer.
+  seq(specs, t0, t1 = null, tool = 'pencil') {
+    const items = specs.flat(3).filter(Boolean).map((s) => { const g = this.geom(s); return { kind: s.type, g, w: this.weight(s.type, g, s), s }; });
+    if (!items.length) return t0;
+    const gap = 0.03;
+    const total = items.reduce((a, i) => a + i.w + gap, 0);
+    const scale = t1 !== null ? Math.max(0.05, (t1 - t0) / total) : 1;
+    let t = t0;
+    for (const it of items) {
+      const d = it.w * scale;
+      let tl = it.s.noTool ? null : it.s.tool || (it.kind === 'erase' ? 'eraser' : tool);
+      if (it.kind === 'tone') tl = null;
+      this.add(it.kind, it.g, t, t + d, tl);
+      t += d + gap * scale;
+    }
+    return t;
+  }
+  pre(specs) { for (const s of specs.flat(3).filter(Boolean)) this.add(s.type, this.geom(s), -3, -2.5, null); }
+  dyn(t0, t1, layer, draw) { this.page.dyn.push({ t0, t1, layer, draw }); }
+}
+
+/* =====================================================================
+   NESNE ÇİZİMLERİ (saat, takvim, sandalye, kupa, bina, lamba, kuyu...)
+   ===================================================================== */
+function chairSpecs(x, fy, s) {
+  const L = (a, b, o) => sk.line(P(x + a[0] * s, fy + a[1] * s), P(x + b[0] * s, fy + b[1] * s), o);
+  return [
+    L([-70, -150], [62, -150]), L([62, -150], [86, -176]), L([86, -176], [-44, -176]), L([-44, -176], [-70, -150]),
+    L([-68, -150], [-66, 0]), L([60, -150], [58, 0]), L([-44, -176], [-42, -30], { dark: 0.6 }), L([86, -176], [84, -26], { dark: 0.6 }),
+    L([-44, -176], [-40, -390]), L([86, -176], [90, -388]), sk.curve([P(x - 46 * s, fy - 386 * s), P(x + 22 * s, fy - 398 * s), P(x + 92 * s, fy - 384 * s)]),
+    L([-42, -330], [88, -326], { dark: 0.6 }), L([-42, -270], [88, -266], { dark: 0.6 }),
+    sk.hatch([[P(x - 70 * s, fy - 150 * s), P(x + 62 * s, fy - 150 * s), P(x + 86 * s, fy - 176 * s), P(x - 44 * s, fy - 176 * s)]], { angle: 20, spacing: 5, dark: 0.35 }),
+    sk.hatch([circlePoly(x + 10 * s, fy + 4, 110 * s, 12 * s, 24)], { angle: 0, spacing: 3.5, dark: 0.3 }),
+  ];
+}
+function clockSpecs(cx, cy, r) {
+  const out = [sk.ellipse(cx, cy, r, r, { w: 2.8 }), sk.ellipse(cx, cy, r * 0.9, r * 0.9, { w: 1.3, dark: 0.5 })];
+  for (let i = 0; i < 12; i++) {
+    const a = (i * TAU) / 12;
+    out.push(sk.line(P(cx + Math.sin(a) * r * 0.74, cy - Math.cos(a) * r * 0.74), P(cx + Math.sin(a) * r * 0.84, cy - Math.cos(a) * r * 0.84), { w: i % 3 === 0 ? 3.2 : 1.8, overshoot: 0 }));
+  }
+  const hA = ((4 + 37 / 60) / 12) * TAU, mA = (37 / 60) * TAU;
+  out.push(sk.line(P(cx, cy), P(cx + Math.sin(hA) * r * 0.46, cy - Math.cos(hA) * r * 0.46), { w: 4 }));
+  out.push(sk.line(P(cx, cy), P(cx + Math.sin(mA) * r * 0.7, cy - Math.cos(mA) * r * 0.7), { w: 2.6 }));
+  out.push(sk.ellipse(cx, cy, 5, 5, { w: 2.2 }));
+  out.push(sk.poly([P(cx - r * 0.6, cy - r * 0.25), P(cx - r * 0.32, cy - r * 0.06), P(cx - r * 0.38, cy + r * 0.16), P(cx - r * 0.06, cy + r * 0.32), P(cx + r * 0.24, cy + r * 0.26)], { w: 1.3, dark: 0.75 }));
+  out.push(sk.hatch([circlePoly(cx, cy, r), circlePoly(cx, cy, r * 0.9)], { angle: 40, spacing: 3.2, dark: 0.5 }));
+  out.push(sk.hatch([circlePoly(cx + 8, cy + 10, r * 0.95, r * 0.95)], { angle: -30, spacing: 9, dark: 0.12 }));
+  return out;
+}
+function calendarSpecs(x, y, w, h) {
+  const out = [...sk.rect(x, y, w, h, { w: 2.4 }), sk.line(P(x, y + 48), P(x + w, y + 48), { w: 2 })];
+  out.push(sk.ellipse(x + w * 0.3, y, 7, 10, { w: 2 }), sk.ellipse(x + w * 0.7, y, 7, 10, { w: 2 }));
+  out.push(sk.hatch([rectRing(x, y, w, 48)], { angle: 30, spacing: 5, dark: 0.4 }));
+  const cw = w / 7, ch = (h - 48) / 5;
+  for (let i = 1; i < 7; i++) out.push(sk.line(P(x + i * cw, y + 48), P(x + i * cw, y + h), { w: 1.1, dark: 0.55, overshoot: 0 }));
+  for (let j = 1; j < 5; j++) out.push(sk.line(P(x, y + 48 + j * ch), P(x + w, y + 48 + j * ch), { w: 1.1, dark: 0.55, overshoot: 0 }));
+  return { frame: out, cell: (k) => ({ x: x + (k % 7) * cw, y: y + 48 + Math.floor(k / 7) * ch, w: cw, h: ch }) };
+}
+function mugSpecs(x, fy, s = 1) {
+  return [
+    sk.ellipse(x, fy - 62 * s, 26 * s, 8 * s, { w: 2 }),
+    sk.line(P(x - 26 * s, fy - 62 * s), P(x - 22 * s, fy - 4 * s)), sk.line(P(x + 26 * s, fy - 62 * s), P(x + 22 * s, fy - 4 * s)),
+    sk.curve([P(x - 22 * s, fy - 4 * s), P(x, fy + 2 * s), P(x + 22 * s, fy - 4 * s)]),
+    sk.curve([P(x + 25 * s, fy - 50 * s), P(x + 44 * s, fy - 44 * s), P(x + 42 * s, fy - 24 * s), P(x + 23 * s, fy - 18 * s)]),
+    sk.hatch([[P(x - 26 * s, fy - 62 * s), P(x - 22 * s, fy - 4 * s), P(x - 4 * s, fy), P(x - 8 * s, fy - 60 * s)]], { angle: 80, spacing: 4, dark: 0.4 }),
+  ];
+}
+function buildingSpecs(seed, x0, x1, base) {
+  const r = mulberry32(seed), out = [];
+  for (let x = x0; x < x1;) {
+    const w = 90 + r() * 110, h = 150 + r() * 220;
+    out.push(...sk.rect(x, base - h, w, h, { w: 1.8, dark: 0.65 }));
+    for (let wy = base - h + 18; wy < base - 30; wy += 34) {
+      for (let wx = x + 14; wx < x + w - 24; wx += 30) {
+        if (r() < 0.3) continue;
+        out.push(...sk.rect(wx, wy, 14, 18, { w: 1, dark: 0.45, overshoot: 1 }));
+      }
+    }
+    if (r() < 0.5) out.push(sk.hatch([rectRing(x, base - h, w, h)], { angle: 70, spacing: 8, dark: 0.18 }));
+    x += w + 8 + r() * 30;
+  }
+  return out;
+}
+function lampSpecs(x, fy, h) {
+  return [
+    sk.line(P(x, fy), P(x, fy - h), { w: 4, dark: 1 }), sk.line(P(x + 6, fy), P(x + 6, fy - h), { w: 2, dark: 1 }),
+    sk.curve([P(x + 3, fy - h), P(x + 30, fy - h - 40), P(x + 80, fy - h - 30)], { w: 3.5, dark: 1 }),
+    sk.poly([P(x + 58, fy - h - 30), P(x + 104, fy - h - 30), P(x + 94, fy - h - 8), P(x + 68, fy - h - 8), P(x + 58, fy - h - 30)], { w: 3, dark: 1 }),
+    sk.line(P(x - 20, fy), P(x + 26, fy), { w: 4, dark: 1 }),
+  ];
+}
+function binSpecs(x, fy) {
+  const out = [sk.ellipse(x, fy - 140, 50, 11, { w: 2.2 }), sk.line(P(x - 50, fy - 140), P(x - 40, fy)), sk.line(P(x + 50, fy - 140), P(x + 40, fy)), sk.curve([P(x - 40, fy), P(x, fy + 6), P(x + 40, fy)])];
+  for (let k = -2; k <= 2; k++) out.push(sk.line(P(x + k * 17, fy - 128), P(x + k * 14, fy - 8), { w: 1.2, dark: 0.55 }));
+  out.push(sk.hatch([[P(x - 50, fy - 140), P(x - 40, fy), P(x - 18, fy + 3), P(x - 24, fy - 138)]], { angle: 80, spacing: 4.5, dark: 0.35 }));
+  return out;
+}
+function envelopeSpecs(x, y, w, h, open) {
+  const out = [...sk.rect(x, y, w, h, { w: 2.2 }), sk.line(P(x, y + h), P(x + w * 0.42, y + h * 0.52)), sk.line(P(x + w, y + h), P(x + w * 0.58, y + h * 0.52))];
+  if (open) {
+    out.push(sk.line(P(x, y), P(x + w / 2, y - h * 0.55)), sk.line(P(x + w, y), P(x + w / 2, y - h * 0.55)));
+    out.push(...sk.rect(x + w * 0.12, y - h * 0.38, w * 0.76, h * 0.7, { w: 1.6, dark: 0.7 }));
+    for (let k = 1; k <= 3; k++) out.push(sk.line(P(x + w * 0.2, y - h * 0.38 + k * 16), P(x + w * 0.8, y - h * 0.38 + k * 16), { w: 1, dark: 0.3, overshoot: 0 }));
+  } else out.push(sk.line(P(x, y), P(x + w / 2, y + h * 0.55)), sk.line(P(x + w, y), P(x + w / 2, y + h * 0.55)));
+  return out;
+}
+function bubbleSpecs(x, y, w, h) {
+  return [sk.curve([P(x + w * 0.2, y + h), ...ellipsePts(x + w / 2, y + h / 2, w / 2, h / 2, { a0: Math.PI * 0.62, sweep: TAU * 0.93, wob: 0.04 }), P(x + w * 0.12, y + h * 1.35), P(x + w * 0.2, y + h)], { smooth: false, w: 2.2 })];
+}
+function footprintSpecs(p, ang, s, dark) {
+  const c = Math.cos(ang), sn = Math.sin(ang), T = (x, y) => P(p.x + (x * c - y * sn) * s, p.y + (x * sn + y * c) * s);
+  const sole = ellipsePts(0, 0, 14, 7, { wob: 0.08 }).map((q) => T(q.x, q.y));
+  const heel = ellipsePts(-22, 0, 7, 6).map((q) => T(q.x, q.y));
+  return [sk.poly(sole, { w: 1.6, dark, overshoot: 0 }), sk.poly(heel, { w: 1.6, dark, overshoot: 0 }), sk.hatch([sole.slice(0, -2)], { angle: ang * 57 + 60, spacing: 3.2, dark: dark * 0.7 })];
+}
+function handOutlineSpecs(x, y, s, dark) {
+  const pts = [[0, 0], [30, -6], [52, -18], [58, -12], [40, 0], [66, -2], [70, 6], [44, 10], [64, 16], [62, 24], [40, 20], [52, 30], [46, 36], [24, 26], [4, 22]].map(([a, b]) => P(x - a * s, y + b * s));
+  return [sk.poly(pts, { smooth: true, w: 1.6, dark, closed: true, overshoot: 0 })];
+}
+function wellSpecs(cx, cy) {
+  const out = [];
+  const E = { tool: 'eraser', erase: true, w: 3, dark: 1, double: false, jit: 0.6 };
+  out.push(sk.ellipse(cx, cy, 240, 70, E), sk.ellipse(cx, cy + 4, 200, 54, { ...E, w: 2.4 }));
+  out.push(sk.line(P(cx - 240, cy), P(cx - 232, cy + 190), E), sk.line(P(cx + 240, cy), P(cx + 232, cy + 190), E));
+  out.push(sk.curve([P(cx - 232, cy + 190), P(cx, cy + 250), P(cx + 232, cy + 190)], E));
+  for (let k = 1; k <= 3; k++) {
+    const y = cy + k * 50;
+    out.push(sk.curve([P(cx - 236, y), P(cx, y + 62 - k * 3), P(cx + 236, y)], { ...E, w: 1.8 }));
+    for (let j = -3; j <= 3; j++) out.push(sk.line(P(cx + j * 64 + (k % 2) * 32, y + 50 - Math.abs(j) * 8), P(cx + j * 64 + (k % 2) * 32, y + 96 - Math.abs(j) * 8 - 44), { ...E, w: 1.6 }));
+  }
+  return out;
+}
+function doorFrameSpecs(x, y, w, h) {
+  return [
+    sk.line(P(x - 14, y + h), P(x - 14, y - 14), { w: 3.2, dark: 1 }), sk.line(P(x - 14, y - 14), P(x + w + 14, y - 14), { w: 3.2, dark: 1 }), sk.line(P(x + w + 14, y - 14), P(x + w + 14, y + h), { w: 3.2, dark: 1 }),
+    sk.line(P(x, y + h), P(x, y), { w: 2 }), sk.line(P(x, y), P(x + w, y), { w: 2 }), sk.line(P(x + w, y), P(x + w, y + h), { w: 2 }),
+  ];
+}
+
+/* =====================================================================
+   HİKÂYE — sahneler zamanlamaya (C) göre kurulur
+   ===================================================================== */
+const BALL_SPOTS = [P(1850, 150), P(80, 990), P(1865, 985), P(95, 330), P(1790, 1045), P(130, 1050), P(1880, 560), P(60, 700), P(1700, 1060), P(250, 1060)];
+
+function buildStory(C) {
+  SEED = 4242;
+  const S = { C, pages: [], pieces: [], stubs: [], camKeys: [], shakes: [], sfx: [], black: [], toolOps: [], broken: [], attached: {} };
+  S.duration = Math.max(C.end + 4.5, C.out_3 + 9);
+  const nextCue = (id) => { const i = CUE_ORDER.indexOf(id); return i >= 0 && i < CUE_ORDER.length - 1 ? C[CUE_ORDER[i + 1]] : S.duration; };
+  const mk = (kind = 'paper') => { const p = new Page(S.pages.length, kind); S.pages.push(p); return { p, b: new Builder(p, S) }; };
+  const cam = (t, x, y, z = 1, r = 0) => S.camKeys.push({ t, x: PAGE.x + x, y: PAGE.y + y, z, r });
+  const sfx = (t, name, o = {}) => S.sfx.push({ t, name, ...o });
+  let ball = 0;
+  const lyric = (b, id, x, y, o = {}) => {
+    const t0 = C[id] + (o.delay ?? 0.05);
+    const txt = o.text || LYRICS[id];
+    const dur = clamp(txt.length * 0.07, 0.9, Math.max(0.9, (nextCue(id) - t0) * 0.72));
+    b.seq([sk.text(txt, x, y, { size: o.size || 52, dark: o.dark ?? 0.86, align: o.align || 'center', erase: !!o.erase, noTool: !o.tool, weight: o.weight || 600 })], t0, t0 + dur, o.tool || 'pencil');
+  };
+  const flip = (p, t, dur = 0.9) => { p.removedAt = t; S.pieces.push({ kind: 'flipUp', page: p, snapT: t, t0: t, t1: t + dur }); sfx(t, 'flip', { dur }); };
+  const addStub = (t, x0 = 0, x1 = PW) => S.stubs.push({ t, x0, x1, seed: S.stubs.length + 3 });
+  const tearFull = (p, t, o = {}) => {
+    p.removedAt = t;
+    const poly = p.shapeAt(t) || rectRing(0, 0, PW, PH);
+    S.pieces.push(makeThrow(p, t, poly, BALL_SPOTS[ball++ % BALL_SPOTS.length], o));
+    addStub(t, o.stubX0 ?? 0, o.stubX1 ?? PW);
+    sfx(t, 'tear'); sfx(t + 0.5, 'crumple'); sfx(t + 1.25, 'toss');
+  };
+  const tearHalf = (p, t, x, seed) => {
+    const jag = jagLine(x, seed);
+    p.cuts.push({ t, poly: [P(-2, -2), ...jag, P(-2, PH + 2)] });
+    S.pieces.push(makeThrow(p, t, [...jag, P(PW + 2, PH + 2), P(PW + 2, -2)], BALL_SPOTS[ball++ % BALL_SPOTS.length], { pull: P(1, -0.4) }));
+    addStub(t, x, PW);
+    sfx(t, 'tear'); sfx(t + 0.5, 'crumple'); sfx(t + 1.25, 'toss');
+    return jag;
+  };
+  const shake = (t, amp, dur) => S.shakes.push({ t, amp, dur });
+
+  /* ---------- 0) KAPAK ---------- */
+  const cover = mk('cover').p;
+  const openT = 3.1;
+  cover.removedAt = openT;
+  S.pieces.push({ kind: 'flipUp', page: cover, snapT: 0, t0: openT, t1: openT + 1.2, back: 'cardIn' });
+  sfx(0.35, 'lamp'); sfx(openT, 'coverOpen');
+  cam(0, 790, 470, 0.86); cam(2.6, 790, 470, 0.88); cam(openT + 1.3, 790, 470, 0.98);
+
+  /* ---------- 1) BAŞLIK SAYFASI ---------- */
+  const T1 = C.v1_1;
+  {
+    const { p, b } = mk();
+    b.seq([sk.text('Yarım', 790, 420, { size: 200, weight: 700, dark: 0.9, tool: 'pencil' })], openT + 1.4, openT + 3.6);
+    b.seq([sk.curve([P(600, 462), P(790, 474), P(1000, 452)], { w: 2.4 })], openT + 3.7, openT + 4.1);
+    b.seq(chairSpecs(790, 830, 0.72), openT + 4.3, Math.max(openT + 5.5, T1 - 2.2));
+    flip(p, T1 - 1.25);
+    cam(T1 - 1.4, 790, 490, 1.06);
+  }
+
+  /* ---------- 2) 1. KITA: durmuş saat ---------- */
+  {
+    const { p, b } = mk();
+    const T = C.v1_1, T2 = C.v1_2, T3 = C.v1_3;
+    const floor = 690;
+    b.seq([sk.line(P(40, floor), P(1540, floor - 6), { w: 2.4 })], T - 1.1, T - 0.5);
+    lyric(b, 'v1_1', 790, 812);
+    lyric(b, 'v1_2', 790, 876);
+    const clockEnd = b.seq(clockSpecs(380, 250, 118), T - 0.3, T + 2.3);
+    const J = fk(POSES.sitWall);
+    const figEnd = b.seq(figureSpecs(J, { hair: 'short', face: 'sad' }, { x: 600, y: floor - 26, s: 1.05 }), clockEnd + 0.1, T + 6.2);
+    // "umrumda değil" derken: yerde hâlâ iki fincan
+    const mugEnd = b.seq([...mugSpecs(930, floor, 1.15), ...mugSpecs(1015, floor, 1.15)], figEnd + 0.1, figEnd + 1.3);
+    const cal = calendarSpecs(1160, 100, 300, 250);
+    const calEnd = b.seq(cal.frame, Math.max(mugEnd + 0.1, T2 + 0.3), Math.max(mugEnd + 1.6, T2 + 1.8));
+    const xs = [];
+    for (let k = 0; k < 24; k++) { const c = cal.cell(k); xs.push(sk.line(P(c.x + 8, c.y + 7), P(c.x + c.w - 8, c.y + c.h - 7), { w: 1.8, speed: 1600 }), sk.line(P(c.x + c.w - 8, c.y + 7), P(c.x + 8, c.y + c.h - 7), { w: 1.8, speed: 1600 })); }
+    const xEnd = b.seq(xs, calEnd + 0.1, Math.min(T3 - 2.4, calEnd + 3.8));
+    const c0 = cal.cell(0);
+    b.seq([sk.ellipse(c0.x + c0.w / 2, c0.y + c0.h / 2, c0.w * 0.62, c0.h * 0.62, { w: 2.6, dark: 0.95 })], xEnd + 0.2, xEnd + 0.9);
+    // Saniye ibresi ilerlemeye çalışıp geri düşer: saat durmuş
+    b.dyn(clockEnd, T3, 'g', (ctx, t) => {
+      const fr = t - Math.floor(t);
+      const pulse = fr < 0.1 ? fr / 0.1 : Math.max(0, 1 - (fr - 0.1) / 0.3);
+      const a = (12 / 60) * TAU + (pulse * TAU) / 60;
+      ctx.strokeStyle = pat(ctx, 'graphite');
+      ctx.globalAlpha = 0.9 * range(t, clockEnd, clockEnd + 0.3);
+      ctx.lineWidth = 1.5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(380 - Math.sin(a) * 20, 250 + Math.cos(a) * 20);
+      ctx.lineTo(380 + Math.sin(a) * 96, 250 - Math.cos(a) * 96);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    });
+    for (let s = Math.ceil(clockEnd); s < T3 - 1.2; s++) sfx(s, 'tick');
+    flip(p, T3 - 1.1);
+    cam(T - 0.2, 790, 470, 1.0); cam(T + 2.3, 560, 360, 1.18); cam(T + 6.0, 700, 470, 1.1); cam(T2 + 1.5, 900, 440, 1.08); cam(T3 - 1.2, 1000, 400, 1.12);
+  }
+
+  /* ---------- 3) 1. KITA: şehir ve boşluk ---------- */
+  {
+    const { p, b } = mk();
+    const T = C.v1_3, T4 = C.v1_4, TE = C.pc_1;
+    const base = 690;
+    b.seq([sk.line(P(40, base), P(1540, base - 4), { w: 2.4 }), sk.line(P(40, 560), P(1540, 556), { w: 1.6, dark: 0.6 }), ...buildingSpecs(71, 60, 1520, 555)], T - 1.0, T + 2.2);
+    lyric(b, 'v1_3', 790, 800);
+    lyric(b, 'v1_4', 790, 866);
+    const him = fk(POSES.standBack);
+    const her = fk(POSES.standBack);
+    const hx = 640, sx = 870;
+    const himEnd = b.seq(figureSpecs(him, { hair: 'short', back: true, knock: true }, { x: hx, y: base - 242 * 0.92, s: 0.92 }), T + 2.3, T + 4.3);
+    b.seq(figureSpecs(her, { hair: 'long', outfit: 'coat', back: true, dark: 0.7, knock: true }, { x: sx, y: base - 242 * 0.86, s: 0.86 }), himEnd + 0.1, Math.min(T4 - 0.3, himEnd + 2.0));
+    // Koşuşturan kalabalık
+    const r = mulberry32(55);
+    const walkers = [];
+    for (let i = 0; i < 12; i++) walkers.push({ dir: i % 2 ? -1 : 1, v: 300 + r() * 180, feet: base + 6 + (r() - 0.5) * 40, s: 0.5 + r() * 0.14, off: r(), hair: r() < 0.5 ? 'short' : 'long', coat: r() < 0.4 });
+    b.dyn(T + 1.0, TE, 'g', (ctx, t) => {
+      const fade = range(t, T + 1.0, T + 2.0);
+      for (const wk of walkers) {
+        const span = PW + 500, period = span / wk.v;
+        const u = ((t / period + wk.off) % 1 + 1) % 1;
+        const x = wk.dir > 0 ? -250 + u * span : PW + 250 - u * span;
+        if (Math.abs(x - hx) < 70 && wk.feet < base) continue;
+        const ph = (u * span) / 60;
+        const J = fk(walkPose(ph, { stride: 28, lean: 8, head: 0 }));
+        const y = wk.feet - 242 * wk.s + walkBob(ph) * wk.s;
+        drawFigureNow(ctx, J, { hair: wk.hair, outfit: wk.coat ? 'coat' : 'hoodie', noHatch: true, face: 'none', dark: 0.5, w: 1.8 }, { x, y, s: wk.s, flip: wk.dir < 0 }, 0.55 * fade, 7);
+        ctx.strokeStyle = pat(ctx, 'graphite');
+        ctx.globalAlpha = 0.25 * fade;
+        ctx.lineWidth = 1.4;
+        for (let k = 0; k < 4; k++) {
+          const yy = y + (k * 40 - 20) * wk.s * 2, x0 = x - wk.dir * (40 + k * 8);
+          ctx.beginPath(); ctx.moveTo(x0, yy); ctx.lineTo(x0 - wk.dir * (60 + k * 14), yy); ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+      }
+    });
+    // "senin bıraktığın o boşluğa bakıyorum": onun yeri silinir
+    const eEnd = b.seq([sk.erase(zigzag(sx - 78, base - 440, sx + 78, base + 8, 26), { r: 32 })], T4 + 0.3, T4 + 2.4);
+    const ghost = [];
+    const gp0 = [P(sx - 16, base - 360), P(sx + 16, base - 360), P(sx + 26, base - 320), P(sx + 16, base - 290), P(sx + 52, base - 250), P(sx + 70, base - 60), P(sx + 30, base - 50), P(sx + 26, base), P(sx - 26, base), P(sx - 30, base - 50), P(sx - 70, base - 60), P(sx - 52, base - 250), P(sx - 16, base - 290), P(sx - 26, base - 320)];
+    const gp = gp0.map((q) => P(sx + (q.x - sx) * 1.2, base + (q.y - base) * 1.2));
+    for (let i = 0; i < gp.length; i++) if (i % 2 === 0) ghost.push(sk.line(gp[i], gp[(i + 1) % gp.length], { w: 1.3, dark: 0.35, overshoot: 0 }));
+    b.seq(ghost, eEnd + 0.2, Math.min(TE - 1.3, eEnd + 2.2));
+    flip(p, TE - 1.0);
+    cam(T - 0.2, 790, 470, 1.0); cam(T + 2.4, 790, 440, 1.02); cam(T4 + 0.2, 760, 470, 1.06); cam(T4 + 2.8, 760, 500, 1.3); cam(TE - 1.1, 780, 500, 1.34);
+  }
+
+  /* ---------- 4) NAKARAT ÖNCESİ: şenlik silinir, saklanma ---------- */
+  {
+    const { p, b } = mk();
+    const T = C.pc_1, T2 = C.pc_2, T3 = C.pc_3, TE = C.c1_1;
+    // Geçmişten kalma, önceden çizilmiş bir şenlik sayfası
+    const fest = [];
+    fest.push(sk.curve([P(140, 120), P(500, 190), P(860, 150), P(1200, 200), P(1460, 130)], { w: 1.8 }));
+    for (let k = 0; k < 13; k++) {
+      const u = (k + 0.5) / 13, x = lerp(160, 1440, u), y = 150 + Math.sin(u * 7) * 26;
+      fest.push(sk.poly([P(x - 22, y), P(x, y + 44), P(x + 22, y), P(x - 22, y)], { w: 1.6, overshoot: 0 }));
+      if (k % 2) fest.push(sk.hatch([[P(x - 20, y + 2), P(x, y + 40), P(x + 20, y + 2)]], { angle: 60, spacing: 4, dark: 0.45 }));
+    }
+    for (const [bx, by, rr] of [[270, 330, 46], [350, 290, 40], [1280, 310, 48], [1360, 350, 38]]) {
+      fest.push(sk.ellipse(bx, by, rr * 0.85, rr, { w: 2 }), sk.curve([P(bx, by + rr), P(bx - 10, by + rr + 90), P(bx + 8, by + rr + 190)], { w: 1.3, dark: 0.6 }));
+      fest.push(sk.hatch([circlePoly(bx + 8, by + 6, rr * 0.7, rr * 0.8)], { angle: 50, spacing: 5, dark: 0.3 }));
+    }
+    const rc = mulberry32(9);
+    for (let k = 0; k < 40; k++) { const x = 150 + rc() * 1300, y = 230 + rc() * 360, a = rc() * TAU; fest.push(sk.line(P(x, y), P(x + Math.cos(a) * 10, y + Math.sin(a) * 10), { w: 2, overshoot: 0 })); }
+    const dh = fk({ view: 'front', lArm: [330, 350], rTarget: P(210, -175), rBend: -1 });
+    const ds = fk({ view: 'front', rArm: [30, 10], lTarget: P(-220, -175), lBend: 1 });
+    fest.push(figureSpecs(dh, { hair: 'short', face: 'laugh' }, { x: 640, y: 700 - 242 * 0.7, s: 0.7 }));
+    fest.push(figureSpecs(ds, { hair: 'long', outfit: 'coat', face: 'laugh' }, { x: 940, y: 700 - 242 * 0.68, s: 0.68 }));
+    fest.push(sk.line(P(420, 704), P(1160, 700), { w: 1.6, dark: 0.6 }));
+    b.pre(fest);
+    lyric(b, 'pc_1', 790, 792, { size: 46 });
+    lyric(b, 'pc_2', 790, 846, { size: 46 });
+    lyric(b, 'pc_3', 790, 900, { size: 44 });
+    // "Sus pus oldu içimdeki o şenlik": şenlik silinir
+    b.seq([sk.erase(zigzag(110, 80, 1480, 690, 56), { r: 50, smear: 0.03 })], T2 + 0.1, T3 - 0.15);
+    // "Saklandım": battaniyeye gömülmüş biri ve örtülü ayna
+    const hide = [];
+    const bl = [P(360, 700), P(390, 600), P(470, 540), P(590, 520), P(700, 560), P(770, 640), P(800, 700)];
+    hide.push(sk.curve(bl, { w: 2.6 }), sk.line(P(340, 702), P(830, 700), { w: 2 }));
+    hide.push(sk.curve([P(470, 560), P(520, 620), P(540, 700)], { w: 1.4, dark: 0.6 }), sk.curve([P(620, 530), P(640, 610), P(690, 700)], { w: 1.4, dark: 0.6 }));
+    hide.push(sk.curve([P(462, 548), P(478, 528), P(500, 520), P(520, 528), P(530, 546)], { w: 1.8 }));
+    hide.push(sk.hatch([[P(470, 540), P(500, 524), P(528, 546), P(500, 552)]], { angle: 60, spacing: 3, dark: 0.7 }));
+    hide.push(...handOutlineSpecs(760, 648, 0.55, 0.85));
+    hide.push(sk.hatch([bl.concat([P(800, 700), P(360, 700)])], { angle: 35, spacing: 6.5, dark: 0.35 }));
+    hide.push(sk.ellipse(1150, 430, 110, 170, { w: 2.2 }), sk.line(P(1090, 590), P(1060, 700), { w: 2 }), sk.line(P(1210, 590), P(1240, 700), { w: 2 }));
+    const cloth = [P(1020, 300), P(1100, 240), P(1200, 250), P(1275, 320), P(1290, 520), P(1270, 600), P(1230, 580), P(1190, 620), P(1150, 585), P(1100, 625), P(1060, 590), P(1020, 610), P(1005, 470)];
+    hide.push(sk.poly(cloth, { smooth: true, closed: true, w: 2.2 }), sk.curve([P(1080, 280), P(1100, 450), P(1100, 620)], { w: 1.3, dark: 0.55 }), sk.curve([P(1190, 270), P(1180, 450), P(1190, 610)], { w: 1.3, dark: 0.55 }));
+    hide.push(sk.hatch([cloth], { angle: -30, spacing: 8, dark: 0.22 }));
+    const hideEnd = b.seq(hide, T3 + 0.1, Math.min(TE - 3.2, T3 + 3.8));
+    const outer = rectRing(0, 0, PW, PH), inner = circlePoly(790, 470, 690, 390, 48), inner2 = circlePoly(790, 470, 760, 440, 48);
+    b.seq([sk.hatch([outer, inner], { angle: 45, spacing: 6, dark: 0.42, lineTime: 0.0025 }), sk.hatch([outer, inner2], { angle: -40, spacing: 5, dark: 0.55, lineTime: 0.0025 })], hideEnd + 0.1, TE - 1.5);
+    flip(p, TE - 1.25, 0.85);
+    cam(T - 0.2, 790, 470, 1.0); cam(T2, 790, 460, 1.03); cam(T3, 790, 470, 1.03); cam(TE - 1.5, 800, 540, 1.16);
+  }
+
+  /* ---------- 5) ESKİ ÇİZİM: el ele — ortadan yırtılır ---------- */
+  const oldPic = mk();
+  {
+    const b = oldPic.b;
+    const meet = P(0, 0);
+    const hs = 0.9, feet = 720, pel = feet - 242 * hs, mx = 792, my = pel + 10, xh = 670, xs = 914;
+    const himJ = fk({ view: 'front', lArm: [187, 181], rTarget: P((mx - 6 - xh) / hs, (my - pel) / hs), rBend: 1 });
+    const herJ = fk({ view: 'front', rArm: [173, 179], lTarget: P((mx + 6 - xs) / hs, (my - pel) / hs), lBend: -1 });
+    b.pre([
+      figureSpecs(himJ, { hair: 'short', face: 'smile' }, { x: xh, y: pel, s: hs }),
+      figureSpecs(herJ, { hair: 'long', outfit: 'coat', face: 'smile' }, { x: xs, y: pel, s: 0.87 }),
+      sk.hatch([circlePoly(790, feet + 8, 330, 20, 30)], { angle: 0, spacing: 3.5, dark: 0.35 }),
+      sk.poly([P(790, 250), P(760, 220), P(752, 196), P(770, 182), P(790, 200), P(810, 182), P(828, 196), P(820, 220), P(790, 250)], { smooth: true, w: 2.2 }),
+      sk.text('biz', 790, 830, { size: 72, dark: 0.75 }),
+      sk.text('— 14 Şubat —', 1380, 110, { size: 34, dark: 0.45 }),
+    ]);
+    void meet;
+  }
+
+  /* ---------- 6) NAKARAT 1 sayfası (yırtılan yarının altından görünür) ---------- */
+  const ch1 = mk();
+  {
+    const b = ch1.b;
+    const T = C.c1_1, T2 = C.c1_2, T3 = C.c1_3, T4 = C.c1_4, T5 = C.c1_5, T6 = C.c1_6;
+    const cx = 1190;
+    const tearT = T + 0.12;
+    tearHalf(oldPic.p, tearT, 792, 606);
+    shake(tearT, 7, 0.6);
+    const w1 = b.seq([sk.text('Yarım kaldım,', cx, 190, { size: 96, weight: 700, dark: 0.95 })], T + 0.7, T + 2.6);
+    b.seq([sk.text('inkar etmiyorum!', cx, 280, { size: 76, weight: 700, dark: 0.95 })], w1 + 0.05, Math.min(T2 - 0.3, w1 + 1.6));
+    lyric(b, 'c1_2', cx, 640, { size: 44 });
+    const sc = [];
+    for (let k = 0; k < 3; k++) sc.push(sk.poly(scribblePts(1180, 450, 290, 105, 34, 40 + k), { w: 3.2, dark: 1, speed: 3200, jit: 1.6 }));
+    const scEnd = b.seq(sc, T2 + 0.05, T2 + 1.9);
+    shake(T2 + 0.05, 3.5, 1.9);
+    // öfke... ama kalem onun elini yeniden, usulca çiziyor
+    const handEnd = b.seq(handOutlineSpecs(880, 520, 0.9, 0.32), scEnd + 0.15, Math.min(T3 - 1.6, scEnd + 1.4));
+    b.seq([sk.erase(zigzag(870, 330, 1500, 570, 44), { r: 36 })], handEnd + 0.15, T3 - 0.1);
+    b.seq([...envelopeSpecs(930, 380, 230, 150, true)], T3 + 0.1, T3 + 1.8);
+    b.seq(bubbleSpecs(1250, 330, 230, 150), T3 + 2.0, T3 + 3.0);
+    lyric(b, 'c1_3', cx, 710, { size: 42 });
+    const fp = [];
+    for (let k = 0; k < 9; k++) {
+      const u = k / 8, x = lerp(880, 1540, u), y = lerp(890, 790, u) + (k % 2 ? 16 : -16);
+      fp.push(footprintSpecs(P(x, y), -0.15, 0.8 - u * 0.25, 0.9 - u * 0.6));
+    }
+    b.seq(fp, T4 + 0.1, Math.min(T5 - 0.2, T4 + 2.8));
+    lyric(b, 'c1_4', cx, 776, { size: 46 });
+    // "Gittin ve bittik.": kalan yarı da koparılır
+    tearFull(oldPic.p, T5 + 0.1, { stubX0: 0, stubX1: 792, pull: P(-1, -0.3) });
+    shake(T5 + 0.1, 5, 0.5);
+    b.seq([sk.text('Gittin ve bittik.', 420, 470, { size: 84, weight: 700, dark: 0.95 })], T5 + 0.9, Math.min(T6 - 0.1, T5 + 2.5));
+    tearFull(ch1.p, T6 + 0.1);
+    shake(T6 + 0.1, 6, 0.5);
+    cam(T - 0.1, 790, 470, 1.0); cam(tearT + 0.3, 840, 470, 1.03); cam(T2, 1120, 450, 1.1); cam(T3, 1150, 480, 1.12); cam(T4, 1150, 620, 1.1); cam(T5, 790, 470, 1.0); cam(T6 + 0.2, 790, 470, 1.0);
+  }
+
+  /* ---------- 7) "Bittik..." ---------- */
+  {
+    const { p, b } = mk();
+    const T6 = C.c1_6, TV = C.v2_1;
+    b.seq([sk.text('Bittik...', 790, 470, { size: 80, dark: 0.85 })], T6 + 1.1, T6 + 2.8);
+    flip(p, TV - 1.0);
+    cam(T6 + 0.4, 790, 470, 1.0); cam(TV - 1.1, 790, 450, 1.18);
+  }
+
+  /* ---------- 8) 2. KITA: yürüyüş, gülmeye çalışmak, maske ---------- */
+  {
+    const { p, b } = mk();
+    const T = C.v2_1, T2 = C.v2_2, TE = C.v2_3;
+    const street = 700, s = 0.72;
+    b.seq([sk.line(P(40, street), P(1540, street - 4), { w: 2.4 })], T - 1.0, T - 0.5);
+    lyric(b, 'v2_1', 790, 150, { size: 52 });
+    lyric(b, 'v2_2', 790, 218, { size: 52 });
+    const binEnd = b.seq(binSpecs(470, street), T + 0.1, T + 1.5);
+    const cafe = [];
+    cafe.push(sk.line(P(1080, 590), P(1300, 588), { w: 2.6 }), sk.line(P(1110, 590), P(1110, street)), sk.line(P(1270, 590), P(1270, street)));
+    const fA = fk(POSES.sitChair), fB = fk(POSES.sitChair), fC = fk({ view: 'front', lArm: [200, 150], rArm: [160, 210] });
+    cafe.push(figureSpecs(fA, { hair: 'long', face: 'laugh' }, { x: 1030, y: street - 128 * 0.66, s: 0.66 }));
+    cafe.push(figureSpecs(fB, { hair: 'short', face: 'laugh' }, { x: 1355, y: street - 128 * 0.66, s: 0.66, flip: true }));
+    cafe.push(figureSpecs(fC, { hair: 'short', face: 'laugh', noLegs: true }, { x: 1190, y: 560, s: 0.6 }));
+    cafe.push(sk.text('ha ha', 1000, 420, { size: 36, dark: 0.65 }), sk.text('ha ha ha', 1390, 410, { size: 36, dark: 0.65 }));
+    b.seq(cafe, binEnd + 0.2, T2 - 0.4);
+    // yürüyen adam (hareketli çizim)
+    const keys = [[T - 0.2, 150], [T + 2.2, 400], [T + 3.4, 400], [T2 - 0.3, 820]];
+    const xAt = (t) => {
+      if (t <= keys[0][0]) return keys[0][1];
+      for (let i = 1; i < keys.length; i++) if (t <= keys[i][0]) return lerp(keys[i - 1][1], keys[i][1], (t - keys[i - 1][0]) / (keys[i][0] - keys[i - 1][0]));
+      return keys[keys.length - 1][1];
+    };
+    const tossT = T + 2.5;
+    b.dyn(T - 0.4, TE, 'g', (ctx, t) => {
+      const x = xAt(t), fade = range(t, T - 0.4, T);
+      const arrived = t >= T2 - 0.3;
+      let J, y;
+      if (!arrived) {
+        const ph = (x - 150) / 58;
+        const moving = xAt(t + 0.05) !== x;
+        const pose = moving ? walkPose(ph, { head: 10, neck: 10 }) : { view: 'side', torso: 2, neck: 14, head: 10, lArm: [184, 180], rArm: [176, 176] };
+        if (t > tossT - 0.3 && t < tossT + 0.4) { const k = Math.sin(range(t, tossT - 0.3, tossT + 0.4) * Math.PI); pose.rArm = [lerp(176, 60, k), lerp(176, 30, k)]; }
+        J = fk(pose);
+        y = street - 242 * s + (moving ? walkBob(ph) * s : 0);
+        drawFigureNow(ctx, J, { hair: 'short', face: 'sad' }, { x, y, s }, fade, 3);
+      } else {
+        const mk2 = range(t, T2 + 1.2, T2 + 2.9), fall = range(t, T2 + 2.9, T2 + 3.5);
+        const headLocal = fk({ view: 'front' }).head;
+        const hand = fall > 0 ? P(55, 0) : P(headLocal.x + 6, headLocal.y + 18 + mk2 * 24);
+        J = fk({ view: 'front', rTarget: hand, rBend: -1, bow: mk2 });
+        y = street - 242 * s;
+        drawFigureNow(ctx, J, { hair: 'short', face: 'sad' }, { x, y, s }, 1, 4);
+        // maske
+        const head = xfPoint(J.head, { x, y, s });
+        let mx = head.x + 4 * s, my = head.y + (4 + mk2 * 26) * s, rot = mk2 * 0.25;
+        if (fall > 0) { mx = head.x + 60 * s + fall * 50; my = lerp(head.y + 30 * s, street - 18, easeIn(fall)); rot = 0.25 + fall * 1.2; }
+        ctx.save();
+        ctx.translate(mx, my);
+        ctx.rotate(rot);
+        ctx.fillStyle = '#efe9dc';
+        ctx.beginPath(); ctx.ellipse(0, 0, 30 * s * 1.3, 38 * s * 1.3, 0, 0, TAU); ctx.fill();
+        const ms = s * 1.3;
+        const specs = [sk.ellipse(0, 0, 30 * ms, 38 * ms, { w: 2.2 }), sk.curve([P(-16 * ms, 12 * ms), P(0, 24 * ms), P(16 * ms, 12 * ms)], { w: 2.2 }), sk.ellipse(-11 * ms, -8 * ms, 7 * ms, 4 * ms, { w: 1.8 }), sk.ellipse(11 * ms, -8 * ms, 7 * ms, 4 * ms, { w: 1.8 })];
+        specs.forEach((sp, i) => drawStrokeGeom(ctx, strokeGeom(sp.pts, { ...sp, seed: 900 + i }), 1));
+        ctx.restore();
+      }
+    });
+    sfx(tossT + 0.5, 'land');
+    b.dyn(tossT, TE, 'g', (ctx, t) => {
+      const u = range(t, tossT, tossT + 0.55);
+      const x = lerp(430, 470, u), y = lerp(460, 580, u) - 90 * Math.sin(u * Math.PI);
+      if (u >= 1) return;
+      ctx.fillStyle = '#efe9dc';
+      ctx.beginPath(); ctx.arc(x, y, 13, 0, TAU); ctx.fill();
+      drawStrokeGeom(ctx, strokeGeom(scribblePts(x, y, 13, 12, 9, 5), { seed: 77, w: 1.6 }), 1);
+    });
+    sfx(T2 + 3.5, 'drop');
+    flip(p, TE - 1.0);
+    cam(T - 1.0, 790, 470, 1.0); cam(T, 560, 420, 1.12); cam(T + 2.4, 640, 420, 1.12); cam(T2 - 0.5, 900, 420, 1.08); cam(T2 + 0.6, 830, 380, 1.4); cam(TE - 1.2, 830, 400, 1.36);
+  }
+
+  /* ---------- 9) Sönen sokak lambaları ve kuyu ---------- */
+  {
+    const { p, b } = mk();
+    const T = C.v2_3, T2 = C.v2_4, T3 = C.v2_5;
+    const street = 720;
+    const lamps = [250, 1330];
+    b.pre([
+      sk.tone([rectRing(-20, -20, PW + 40, PH + 40)], { dark: 0.5, blur: 0.5 }),
+      sk.hatch([rectRing(0, 0, PW, PH)], { angle: 45, spacing: 3.4, dark: 0.85, cross: true, crossSpacing: 1.05 }),
+      sk.hatch([rectRing(0, 0, PW, PH)], { angle: 8, spacing: 4.5, dark: 0.55 }),
+      sk.line(P(40, street), P(1540, street - 4), { w: 3, dark: 1 }),
+      ...lamps.map((x) => lampSpecs(x - 40, street, 360)),
+    ]);
+    b.dyn(-3, T3 + 1, 'g', (ctx, t) => {
+      let I = 1;
+      if (t > T + 2.2) { const k = range(t, T + 2.2, T + 4.4); I = k >= 1 ? 0 : (1 - k) * (0.55 + 0.45 * Math.sign(Math.sin(t * 37) + Math.sin(t * 23) * 0.6)); }
+      if (I <= 0.01) return;
+      ctx.globalCompositeOperation = 'destination-out';
+      for (const x of lamps) {
+        const lx = x + 41, ly = street - 360 - 10;
+        const g = ctx.createRadialGradient(lx, ly, 10, lx, ly + 200, 380);
+        g.addColorStop(0, `rgba(0,0,0,${0.95 * I})`);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.moveTo(lx - 30, ly); ctx.lineTo(lx + 30, ly); ctx.lineTo(lx + 230, street + 40); ctx.lineTo(lx - 230, street + 40); ctx.closePath(); ctx.fill();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    });
+    for (const dt of [2.3, 2.9, 3.6, 4.2]) sfx(T + dt, 'flicker');
+    lyric(b, 'v2_3', 790, 840, { size: 50, erase: true });
+    b.seq(wellSpecs(790, 470), T2 + 0.1, T3 - 2.2, 'eraser');
+    b.seq([sk.hatch([circlePoly(790, 474, 196, 50, 40)], { angle: 20, spacing: 3, dark: 0.9, cross: true, lineTime: 0.002 }), sk.tone([circlePoly(790, 476, 188, 46, 40)], { dark: 0.95, blur: 5 })], T3 - 2.1, T3 - 1.6);
+    lyric(b, 'v2_4', 790, 900, { size: 46, erase: true });
+    p.removedAt = T3 - 0.1;
+    S.black.push({ t0: T3 - 0.7, t1: T3 - 0.1, a0: 0, a1: 1 }, { t0: T3 - 0.1, t1: T3 + 0.7, a0: 1, a1: 0 });
+    cam(T - 0.2, 790, 470, 1.0); cam(T + 4.4, 790, 460, 1.02); cam(T2, 790, 500, 1.08); cam(T3 - 2.0, 790, 480, 1.3); cam(T3 - 0.1, 790, 474, 3.6);
+  }
+
+  /* ---------- 10) Düşüş ---------- */
+  {
+    const { p, b } = mk();
+    const T = C.v2_5, TE = C.c2_1;
+    b.pre([
+      sk.tone([rectRing(-20, -20, PW + 40, PH + 40)], { dark: 0.55, blur: 0.5 }),
+      sk.hatch([rectRing(0, 0, PW, PH)], { angle: 45, spacing: 3.8, dark: 0.75, cross: true, crossSpacing: 1 }),
+      sk.hatch([rectRing(0, 0, PW, PH)], { angle: 10, spacing: 6, dark: 0.4 }),
+    ]);
+    const fallJ = fk(POSES.fall);
+    b.dyn(T - 0.2, TE + 1, 'g', (ctx, t) => {
+      const u = range(t, T - 0.1, TE - 0.3);
+      ctx.globalCompositeOperation = 'destination-out';
+      const r = lerp(200, 70, u);
+      const g = ctx.createRadialGradient(790, 90, r * 0.2, 790, 90, r);
+      g.addColorStop(0, 'rgba(0,0,0,0.95)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.ellipse(790, 90, r * 1.6, r * 0.6, 0, 0, TAU); ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+      const y = lerp(200, 640, easeIn(u) * 0.6 + u * 0.4);
+      const J = fallJ;
+      const drawJ = (c) => {
+        const specs = figureSpecs(J, { hair: 'short', face: 'sad', noHatch: true }, { x: 790 + Math.sin(t * 1.3) * 20, y, s: lerp(0.95, 0.7, u), rot: -0.2 + u * 0.9 });
+        specs.forEach((sp, i) => { if (sp.type === 'stroke') drawStrokeGeom(c, strokeGeom(sp.pts, { ...sp, erase: true, double: false, w: sp.w * 1.9, seed: 300 + i }), 1, 1); });
+      };
+      drawJ(ctx);
+    });
+    lyric(b, 'v2_5', 790, 880, { size: 52, erase: true });
+    cam(T - 0.1, 790, 520, 1.7); cam(T + 0.9, 790, 320, 1.15); cam(TE - 0.5, 790, 560, 1.08);
+    tearFull(p, TE - 0.15);
+    shake(TE - 0.15, 6, 0.5);
+  }
+
+  /* ---------- 11) NAKARAT 2: uymayan iki yarı ---------- */
+  {
+    const { p, b } = mk();
+    const T = C.c2_1, TN = C.c2_2;
+    const w1 = b.seq([sk.text('Yarım kaldım,', 790, 150, { size: 88, weight: 700, dark: 0.95 })], T + 0.3, T + 2.0);
+    b.seq([sk.text('inkar etmiyorum!', 790, 232, { size: 68, weight: 700, dark: 0.95 })], w1 + 0.05, Math.min(TN - 0.8, w1 + 1.4));
+    const jag = S.pieces.find((pc) => pc.page === oldPic.p && pc.kind === 'throw').poly.slice(0, -2);
+    const leftPoly = [P(-2, -2), ...jag, P(-2, PH + 2)], rightPoly = [...jag, P(PW + 2, PH + 2), P(PW + 2, -2)];
+    const snapT = C.c1_1 + 0.05;
+    b.dyn(T - 0.5, Infinity, 'top', (ctx, t) => {
+      const k = 0.56, cy = 575;
+      const a = easeOut(range(t, T + 0.2, T + 2.0)), bump = range(t, T + 2.0, T + 2.9);
+      const gap = lerp(260, 44, a) - 34 * Math.sin(bump * Math.PI) + (bump >= 1 ? -8 : 0);
+      const lx = 790 - gap / 2 - 792 * k, rx = 790 + gap / 2 - 792 * k;
+      drawPaperPiece(ctx, oldPic.p, snapT, leftPoly, { x: lx - (1 - a) * 700, y: cy - PH * k / 2, s: k, rot: -0.01 }, 0);
+      drawPaperPiece(ctx, oldPic.p, snapT, rightPoly, { x: rx + (1 - a) * 700, y: cy - PH * k / 2 + 6, s: k, rot: 0.035 }, 1);
+    });
+    sfx(T + 2.4, 'land');
+    flip(p, TN - 0.6, 0.55);
+    cam(T - 0.3, 790, 470, 1.0); cam(TN - 0.6, 790, 500, 1.05);
+  }
+
+  /* ---------- 12) NAKARAT 2: kalemin ucu kırılır ---------- */
+  {
+    const { p, b } = mk();
+    const T = C.c2_2, TN = C.c2_3;
+    const w1 = b.seq([sk.text('Biraz kızgınım sana,', 790, 200, { size: 78, weight: 700, dark: 0.95 })], T + 0.2, T + 1.7);
+    const w2 = b.seq([sk.text('çokça da yorgun...', 790, 290, { size: 66, weight: 600, dark: 0.9 })], w1 + 0.05, w1 + 1.3);
+    const sc = [];
+    for (let k = 0; k < 4; k++) sc.push(sk.poly(scribblePts(790, 560, 330, 130, 30, 70 + k), { w: 3.6, dark: 1, speed: 4200, jit: 1.8 }));
+    const snapAt = b.seq(sc, w2 + 0.05, Math.min(TN - 1.2, w2 + 1.2));
+    S.broken.push({ t0: snapAt, t1: snapAt + 3.2 });
+    sfx(snapAt, 'snap');
+    shake(w2 + 0.05, 4, snapAt - w2);
+    const tipOp = S.toolOps[S.toolOps.length - 1];
+    const tip = strokeTip(tipOp.g, 1);
+    b.dyn(snapAt, Infinity, 'top', (ctx, t) => {
+      const r = mulberry32(8);
+      for (let i = 0; i < 6; i++) {
+        const vx = (r() - 0.3) * 260, vy = -120 - r() * 200, dt = Math.min(t - snapAt, 0.6);
+        const x = tip.x + vx * dt, y = tip.y + vy * dt + 700 * dt * dt;
+        ctx.fillStyle = '#2d2c30';
+        ctx.save(); ctx.translate(x, y); ctx.rotate(r() * 3 + dt * 8);
+        ctx.beginPath(); ctx.moveTo(-4, -2); ctx.lineTo(5, -1); ctx.lineTo(1, 4); ctx.closePath(); ctx.fill(); ctx.restore();
+      }
+    });
+    tearFull(p, TN - 0.15);
+    cam(T - 0.2, 790, 420, 1.05); cam(w2, 790, 520, 1.14); cam(TN - 0.2, 790, 520, 1.14);
+  }
+
+  /* ---------- 13) NAKARAT 2: yağan boş zarflar ---------- */
+  {
+    const { p, b } = mk();
+    const T = C.c2_3, TN = C.c2_4;
+    lyric(b, 'c2_3', 790, 150, { size: 62 });
+    const r = mulberry32(19);
+    const envs = [];
+    for (let i = 0; i < 18; i++) envs.push({ t0: T + 0.3 + i * 0.16, x: 200 + r() * 1180, y1: 640 + r() * 200, rot: (r() - 0.5) * 0.8, spin: (r() - 0.5) * 5, sway: 30 + r() * 40, s: 0.7 + r() * 0.35, seed: 400 + i });
+    b.dyn(T, Infinity, 'top', (ctx, t) => {
+      for (const e of envs) {
+        if (t < e.t0) continue;
+        const u = range(t, e.t0, e.t0 + 1.4);
+        const y = lerp(-140, e.y1, easeIn(u) * 0.4 + u * 0.6);
+        const x = e.x + Math.sin(u * 5 + e.seed) * e.sway * (1 - u);
+        const rot = e.rot + e.spin * (1 - u) * 0.3 + Math.sin(u * 6) * 0.2 * (1 - u);
+        ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(e.s, e.s);
+        ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fillRect(-106, -64, 220, 136);
+        ctx.fillStyle = '#efe9dc'; ctx.fillRect(-110, -70, 220, 136);
+        envelopeSpecs(-110, -70, 220, 136, false).forEach((sp, i) => drawStrokeGeom(ctx, strokeGeom(sp.pts, { ...sp, seed: e.seed * 10 + i }), 1));
+        ctx.restore();
+      }
+    });
+    for (let i = 0; i < 6; i++) sfx(T + 1.4 + i * 0.45, 'land', { gain: 0.5 });
+    flip(p, TN - 0.55, 0.55);
+    cam(T - 0.2, 790, 470, 1.0); cam(TN - 0.5, 790, 520, 1.06);
+  }
+
+  /* ---------- 14) NAKARAT 2: kapanan kapı ---------- */
+  {
+    const { p, b } = mk();
+    const T = C.c2_4, TN = C.c2_5;
+    const dx = 650, dy = 250, dw = 290, dh = 460;
+    const spill = [P(dx, dy + dh), P(dx + dw, dy + dh), P(dx + dw + 180, PH), P(dx - 180, PH)];
+    const herJ = fk(POSES.standBack);
+    b.pre([
+      sk.tone([rectRing(-20, -20, PW + 40, PH + 40), rectRing(dx, dy, dw, dh), spill], { dark: 0.42, blur: 2 }),
+      sk.hatch([rectRing(0, 0, PW, PH), rectRing(dx, dy, dw, dh), spill], { angle: 45, spacing: 4.2, dark: 0.7, cross: true }),
+      ...doorFrameSpecs(dx, dy, dw, dh),
+      figureSpecs(herJ, { hair: 'long', outfit: 'coat', back: true, hairDark: 1.4 }, { x: dx + dw / 2 + 10, y: dy + dh - 242 * 0.66 - 6, s: 0.66 }),
+      sk.hatch([[P(dx + dw / 2 - 40, dy + 60), P(dx + dw / 2 + 60, dy + 60), P(dx + dw / 2 + 70, dy + dh - 10), P(dx + dw / 2 - 50, dy + dh - 10)]], { angle: 80, spacing: 3, dark: 0.55 }),
+    ]);
+    const closeT0 = T + 0.8, closeT1 = T + 2.9;
+    b.dyn(-3, Infinity, 'g', (ctx, t) => {
+      const u = easeIn(range(t, closeT0, closeT1));
+      const edge = lerp(dx + 8, dx + dw, u);
+      if (u > 0.001) {
+        ctx.fillStyle = pat(ctx, 'graphite');
+        ctx.globalAlpha = 0.9;
+        ctx.beginPath(); ctx.moveTo(dx, dy); ctx.lineTo(edge, dy + 10 * (1 - u)); ctx.lineTo(edge, dy + dh - 8 * (1 - u)); ctx.lineTo(dx, dy + dh); ctx.closePath(); ctx.fill();
+        ctx.globalAlpha = 0.9 * u;
+        ctx.beginPath(); for (const q of spill) ctx.lineTo(q.x, q.y); ctx.closePath(); ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = 'rgba(20,20,22,1)';
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(edge, dy); ctx.lineTo(edge, dy + dh); ctx.stroke();
+      }
+    });
+    sfx(closeT1, 'door');
+    shake(closeT1, 7, 0.6);
+    lyric(b, 'c2_4', 790, 860, { size: 54, erase: true, delay: 0.1 });
+    tearFull(p, TN + 0.02);
+    cam(T - 0.2, 790, 470, 1.0); cam(closeT1, 795, 480, 1.14); cam(TN, 795, 480, 1.14);
+  }
+
+  /* ---------- 15) NAKARAT 2: "Gittin ve bittik." — sayfa parçalanır ---------- */
+  {
+    const { p, b } = mk();
+    const T = C.c2_5, T6 = C.c2_6;
+    b.seq([sk.text('Gittin ve bittik.', 790, 490, { size: 116, weight: 700, dark: 0.95 })], T + 0.45, Math.min(T6 - 0.2, T + 2.4));
+    const shredT = T6 + 0.05;
+    p.removedAt = shredT;
+    const r = mulberry32(3);
+    const xs = [0, 330, 640, 960, 1260, PW];
+    for (let i = 0; i < xs.length - 1; i++) {
+      for (let j = 0; j < 2; j++) {
+        const y0 = j ? 470 + (r() - 0.5) * 80 : -2, y1 = j ? PH + 2 : 470 + (r() - 0.5) * 80;
+        const poly = [P(xs[i] + (r() - 0.5) * 30, y0), P(xs[i + 1] + (r() - 0.5) * 30, y0), P(xs[i + 1] + (r() - 0.5) * 30, y1), P(xs[i] + (r() - 0.5) * 30, y1)];
+        S.pieces.push({ kind: 'fall', page: p, snapT: shredT, poly: jaggedPoly(poly, i * 7 + j), t0: shredT + r() * 0.25, t1: shredT + 4.5, vx: (r() - 0.5) * 120, spin: (r() - 0.5) * 2.5, sway: 40 + r() * 60, seed: i * 5 + j });
+      }
+    }
+    addStub(shredT);
+    sfx(shredT, 'tear'); sfx(shredT + 0.12, 'tear', { gain: 0.7 });
+    shake(shredT, 5, 0.5);
+    cam(T - 0.1, 790, 470, 1.0); cam(T6, 790, 480, 1.05); cam(T6 + 2.5, 790, 480, 1.0);
+  }
+
+  /* ---------- 16) sessizlik ---------- */
+  {
+    const { p, b } = mk();
+    const T6 = C.c2_6;
+    lyric(b, 'c2_6', 790, 480, { size: 52, dark: 0.55, delay: 1.4 });
+    flip(p, C.br_1 - 1.5, 1.0);
+  }
+
+  /* ---------- 17) KÖPRÜ: "pişman mısın?" ve yanan sayfa ---------- */
+  {
+    const { p, b } = mk();
+    const T1 = C.br_1, T2 = C.br_2, T3 = C.br_3, TE = C.out_1;
+    const J = fk(POSES.hug);
+    const xf = { x: 740, y: 752 - 20 * 0.95, s: 0.95 };
+    b.pre([figureSpecs(J, { hair: 'short', face: 'sad' }, xf), sk.line(P(500, 756), P(1080, 752), { w: 1.8, dark: 0.65 })]);
+    const heart = xfPoint(addv(lerpP(J.chest, J.O, 0.3), J.perp, 6), xf);
+    b.seq([sk.text('pişman mısın?', 790, 250, { size: 88, dark: 0.9 })], T1 + 0.3, T1 + 2.3);
+    lyric(b, 'br_1', 790, 800, { size: 40, dark: 0.7 });
+    const c1 = b.seq([sk.text('Cevap:', 560, 372, { size: 58, dark: 0.85, align: 'left' })], T2 + 0.2, T2 + 1.0);
+    const c2 = b.seq([sk.line(P(740, 378), P(1080, 374), { w: 2 })], c1 + 0.05, c1 + 0.5);
+    b.seq([sk.hover(P(760, 360), 2.6, 3)], c2 + 0.3, c2 + 2.9);
+    lyric(b, 'br_2', 790, 846, { size: 40, dark: 0.7 });
+    lyric(b, 'br_3', 790, 892, { size: 40, dark: 0.7 });
+    const burn0 = T3 + 0.9;
+    b.dyn(burn0, Infinity, 'top', (ctx, t) => drawBurn(ctx, heart, t - burn0));
+    sfx(burn0, 'fire', { dur: Math.max(2, TE - burn0 - 0.5) });
+    flip(p, TE - 1.1, 1.0);
+    cam(C.br_1 - 1.6, 790, 470, 1.0); cam(T1, 790, 450, 1.0); cam(T3, 790, 480, 1.02); cam(burn0 + 0.5, heart.x, heart.y - 40, 1.25); cam(TE - 1.2, heart.x, heart.y - 10, 1.85);
+  }
+
+  /* ---------- 18) SON ---------- */
+  {
+    const { p, b } = mk();
+    const T1 = C.out_1, T2 = C.out_2, T3 = C.out_3;
+    lyric(b, 'out_1', 790, 330, { size: 66, dark: 0.82 });
+    lyric(b, 'out_2', 790, 430, { size: 66, dark: 0.82 });
+    b.seq([sk.text('Bittik.', 790, 540, { size: 84, weight: 700, dark: 0.95 })], T3 + 0.2, T3 + 1.5);
+    const jag = S.pieces.find((pc) => pc.page === oldPic.p && pc.kind === 'throw').poly.slice(0, -2);
+    const rightPoly = [...jag, P(PW + 2, PH + 2), P(PW + 2, -2)];
+    const slide0 = T2 + 0.8, slide1 = T2 + 2.6;
+    (S.attached[p.id] = S.attached[p.id] || []).push({
+      t0: slide0, draw: (ctx, t) => {
+        const u = easeOut(range(t, slide0, slide1));
+        drawPaperPiece(ctx, oldPic.p, C.c1_1 + 0.05, rightPoly, { x: lerp(1650, 880, u), y: 170, s: 0.56, rot: lerp(0.2, -0.07, u) }, 1);
+      },
+    });
+    sfx(slide0 + 0.2, 'slide');
+    const closeT = T3 + 2.4;
+    S.pieces.push({ kind: 'flipDown', page: cover, snapT: 0, t0: closeT, t1: closeT + 1.2, back: 'cardIn' });
+    cover.returnsAt = closeT + 1.2;
+    sfx(closeT + 1.1, 'coverClose');
+    S.lampOff = closeT + 4.2;
+    sfx(S.lampOff, 'lamp');
+    cam(T1 - 1.2, 790, 470, 1.0); cam(T2 + 0.5, 850, 460, 1.0); cam(T3 + 1.6, 820, 470, 0.98); cam(closeT + 1.4, 840, 480, 0.86); cam(S.lampOff, 840, 480, 0.84);
+    void p;
+  }
+
+  // sıralama ve kalem sesleri
+  for (const pg of S.pages) pg.ops.sort((a, b) => a.t0 - b.t0);
+  S.toolOps.sort((a, b) => a.t0 - b.t0);
+  S.camKeys.sort((a, b) => a.t - b.t);
+  for (const tool of ['pencil', 'eraser']) {
+    let cur = null;
+    for (const op of S.toolOps) {
+      if (op.tool !== tool || op.kind === 'hover') continue;
+      if (cur && op.t0 - cur.t1 < 0.12) cur.t1 = Math.max(cur.t1, op.t1);
+      else { if (cur) S.sfx.push(cur); cur = { t: op.t0, t1: op.t1, name: tool === 'pencil' ? 'scratch' : 'rub' }; }
+    }
+    if (cur) S.sfx.push(cur);
+  }
+  for (const e of S.sfx) if (e.t1) e.dur = e.t1 - e.t;
+  S.sfx.sort((a, b) => a.t - b.t);
+  S.pencilTools = { pencil: S.toolOps.filter((o) => o.tool === 'pencil'), eraser: S.toolOps.filter((o) => o.tool === 'eraser') };
+  return S;
+}
+
+/* =====================================================================
+   KÂĞIT PARÇALARI: yırtma, buruşturma, fırlatma, çevirme, dökülme
+   ===================================================================== */
+function jagLine(x0, seed) {
+  const r = mulberry32(seed), pts = [];
+  let x = x0;
+  for (let y = -4; y <= PH + 4; y += 11) {
+    x += (r() - 0.5) * 10;
+    x = lerp(x, x0, 0.08);
+    pts.push(P(x + (r() - 0.5) * 6, y));
+  }
+  return pts;
+}
+function jaggedPoly(poly, seed) {
+  const r = mulberry32(seed + 100), out = [];
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length];
+    const n = Math.max(2, Math.floor(dist(a, b) / 12));
+    for (let k = 0; k < n; k++) { const q = lerpP(a, b, k / n); out.push(P(q.x + (r() - 0.5) * 7, q.y + (r() - 0.5) * 7)); }
+  }
+  return out;
+}
+function polyCentroid(poly) {
+  let x = 0, y = 0;
+  for (const p of poly) { x += p.x; y += p.y; }
+  return P(x / poly.length, y / poly.length);
+}
+function makeThrow(page, t, poly, target, o = {}) {
+  const pts = resample([...poly, poly[0]], 30);
+  const C = polyCentroid(pts);
+  const r = mulberry32(Math.round(t * 100) + page.id * 13);
+  const blob = pts.map((p, i) => { const d = dist(p, C) || 1; const k = 110 * (0.72 + 0.5 * r()); return P(C.x + ((p.x - C.x) / d) * k, C.y + ((p.y - C.y) / d) * k); });
+  const creases = [];
+  for (let i = 0; i < 34; i++) { const a = r() * TAU, d = r() * 95, l = 20 + r() * 50, b2 = r() * TAU; const c = P(C.x + Math.cos(a) * d, C.y + Math.sin(a) * d); creases.push([P(c.x - Math.cos(b2) * l, c.y - Math.sin(b2) * l), c, P(c.x + Math.cos(b2 + 0.6) * l * 0.8, c.y + Math.sin(b2 + 0.6) * l * 0.8)]); }
+  const pull = o.pull || P(0.4, -1);
+  return { kind: 'throw', page, snapT: t, poly, pts, blob, C, creases, t0: t, t1: t + 1.75, target, pull, spin: (r() - 0.5) * 7, seed: r() * 1000 };
+}
+
+const SNAP = new Map();
+const SNAP_SMALL = new Map();
+const SNAP_SCALE = RENDER ? 1.2 : 0.9;
+function getSnapshot(S, page, t, small = false) {
+  const key = `${page.id}@${t.toFixed(3)}${small ? 's' : ''}`;
+  if (SNAP.has(key)) { const v = SNAP.get(key); SNAP.delete(key); SNAP.set(key, v); return v; }
+  let c;
+  if (small) {
+    if (SNAP_SMALL.has(key)) return SNAP_SMALL.get(key);
+    const big = getSnapshot(S, page, t, false);
+    c = makeCanvas(PW / 5, PH / 5);
+    c.getContext('2d').drawImage(big, 0, 0, c.width, c.height);
+    SNAP_SMALL.set(key, c);
+    return c;
+  } else {
+    const sc = SNAP_SCALE;
+    c = makeCanvas(PW * sc, PH * sc);
+    const R = { canvas: c, ctx: c.getContext('2d'), layer: makeCanvas(PW * sc, PH * sc) };
+    R.lctx = R.layer.getContext('2d');
+    drawPageContent(R, S, page, t, (x) => x.setTransform(sc, 0, 0, sc, 0, 0), true);
+  }
+  SNAP.set(key, c);
+  while (SNAP.size > (RENDER ? 8 : 6)) SNAP.delete(SNAP.keys().next().value);
+  return c;
+}
+let CURRENT_STORY = null;
+
+// Bir kâğıt parçasını (sayfa anlık görüntüsünden) istenen konumda çizer
+function drawPaperPiece(ctx, page, snapT, poly, xf, creased) {
+  const snap = getSnapshot(CURRENT_STORY, page, snapT);
+  ctx.save();
+  ctx.translate(xf.x, xf.y);
+  ctx.rotate(xf.rot || 0);
+  ctx.scale(xf.s, xf.s);
+  ctx.save();
+  ctx.translate(10, 14);
+  ctx.filter = 'blur(6px)';
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  pathPoly(ctx, poly);
+  ctx.fill();
+  ctx.restore();
+  ctx.save();
+  pathPoly(ctx, poly);
+  ctx.clip();
+  ctx.drawImage(snap, 0, 0, PW, PH);
+  if (creased) {
+    const r = mulberry32(99);
+    ctx.lineWidth = 2.2;
+    for (let i = 0; i < 22; i++) {
+      const x = 800 + r() * 780, y = r() * PH, a = r() * TAU, l = 80 + r() * 220;
+      ctx.strokeStyle = 'rgba(90,80,65,0.22)';
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.beginPath(); ctx.moveTo(x + 2, y + 2); ctx.lineTo(x + 2 + Math.cos(a) * l, y + 2 + Math.sin(a) * l); ctx.stroke();
+    }
+  }
+  ctx.restore();
+  ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+  ctx.lineWidth = 2.5;
+  pathPoly(ctx, poly);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawThrow(ctx, S, pc, t) {
+  const u = clamp((t - pc.t0) / (pc.t1 - pc.t0), 0, 1);
+  const tear = easeOut(range(u, 0, 0.2)), lift = easeInOut(range(u, 0.12, 0.4)), crum = easeInOut(range(u, 0.28, 0.68)), fly = easeInOut(range(u, 0.55, 1));
+  const start = P(PAGE.x + pc.C.x + pc.pull.x * (tear * 22 + lift * 60), PAGE.y + pc.C.y + pc.pull.y * (tear * 22 + lift * 60));
+  const pos = lerpP(start, pc.target, fly);
+  pos.y -= 260 * 4 * fly * (1 - fly);
+  const rot = pc.pull.x * (tear * 0.05 + lift * 0.12) + fly * pc.spin + (u >= 1 ? 0 : 0);
+  const s = lerp(1 + lift * 0.04, 0.34, easeIn(range(u, 0.3, 0.85)));
+  const poly = crum > 0 ? pc.pts.map((p, i) => lerpP(p, pc.blob[i], crum)) : pc.poly;
+  ctx.save();
+  ctx.translate(pos.x, pos.y);
+  ctx.rotate(rot);
+  ctx.scale(s, s);
+  ctx.translate(-pc.C.x, -pc.C.y);
+  ctx.save();
+  ctx.translate(12 + 40 * lift * (1 - fly) + 10 * crum, 18 + 50 * lift * (1 - fly) + 12 * crum);
+  ctx.filter = `blur(${6 + 10 * lift}px)`;
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  pathPoly(ctx, poly);
+  ctx.fill();
+  ctx.restore();
+  ctx.save();
+  pathPoly(ctx, poly);
+  ctx.clip();
+  const small = s * (1 - crum * 0.5) < 0.5;
+  const snap = getSnapshot(S, pc.page, pc.snapT, small);
+  const k = lerp(1, 0.28, crum);
+  ctx.translate(pc.C.x, pc.C.y);
+  ctx.scale(k, k);
+  ctx.translate(-pc.C.x, -pc.C.y);
+  ctx.drawImage(snap, 0, 0, PW, PH);
+  ctx.restore();
+  if (crum > 0.02) {
+    ctx.save();
+    pathPoly(ctx, poly);
+    ctx.clip();
+    const g = ctx.createRadialGradient(pc.C.x - 30, pc.C.y - 30, 10, pc.C.x, pc.C.y, 150);
+    g.addColorStop(0, 'rgba(255,255,255,0)');
+    g.addColorStop(0.6, `rgba(60,50,40,${0.25 * crum})`);
+    g.addColorStop(1, `rgba(30,24,18,${0.7 * crum})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(pc.C.x - 400, pc.C.y - 400, 800, 800);
+    ctx.lineWidth = 2.5;
+    for (const c of pc.creases) {
+      ctx.strokeStyle = `rgba(50,42,34,${0.75 * crum})`;
+      ctx.beginPath(); ctx.moveTo(c[0].x, c[0].y); ctx.lineTo(c[1].x, c[1].y); ctx.lineTo(c[2].x, c[2].y); ctx.stroke();
+      ctx.strokeStyle = `rgba(255,255,255,${0.5 * crum})`;
+      ctx.beginPath(); ctx.moveTo(c[0].x + 2, c[0].y + 2); ctx.lineTo(c[1].x + 2, c[1].y + 2); ctx.lineTo(c[2].x + 2, c[2].y + 2); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+  ctx.lineWidth = 3;
+  pathPoly(ctx, poly);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawFlip(ctx, S, pc, t, setPage) {
+  const u = easeInOut(range(t, pc.t0, pc.t1));
+  const th = pc.kind === 'flipUp' ? u * Math.PI : (1 - u) * Math.PI;
+  const c = Math.cos(th), sn = Math.sin(th);
+  const snap = getSnapshot(S, pc.page, pc.snapT);
+  ctx.save();
+  setPage(ctx);
+  if (c > 0.002) {
+    const g = ctx.createLinearGradient(0, PH * c, 0, PH * c + 120 * sn);
+    g.addColorStop(0, `rgba(0,0,0,${0.35 * sn})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, PH * c, PW, 120 * sn);
+    ctx.save();
+    ctx.transform(1, 0, 0, c, 0, 0);
+    ctx.drawImage(snap, 0, 0, PW, PH);
+    ctx.fillStyle = `rgba(0,0,0,${(1 - c) * 0.3})`;
+    ctx.fillRect(0, 0, PW, PH);
+    ctx.restore();
+  } else if (c < -0.002) {
+    ctx.save();
+    ctx.transform(1, 0, 0, c, 0, 0);
+    ctx.fillStyle = pat(ctx, pc.back || 'paperBack');
+    ctx.fillRect(0, 0, PW, PH);
+    if (!pc.back) { ctx.globalAlpha = 0.08; ctx.drawImage(snap, 0, 0, PW, PH); ctx.globalAlpha = 1; }
+    ctx.fillStyle = `rgba(0,0,0,${(1 + c) * 0.35})`;
+    ctx.fillRect(0, 0, PW, PH);
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawFall(ctx, S, pc, t, setPage) {
+  if (t < pc.t0) {
+    ctx.save(); setPage(ctx); pathPoly(ctx, pc.poly); ctx.clip();
+    ctx.drawImage(getSnapshot(S, pc.page, pc.snapT), 0, 0, PW, PH);
+    ctx.restore();
+    return;
+  }
+  const dt = t - pc.t0;
+  const C = polyCentroid(pc.poly);
+  const x = PAGE.x + C.x + pc.vx * dt + Math.sin(dt * 2.4 + pc.seed) * pc.sway * Math.min(1, dt);
+  const y = PAGE.y + C.y + 60 * dt + 170 * dt * dt;
+  if (y > 1500) return;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(pc.spin * dt + Math.sin(dt * 3 + pc.seed) * 0.25);
+  ctx.scale(Math.cos(dt * 2.2 + pc.seed) * 0.35 + 0.65, 1);
+  ctx.translate(-C.x, -C.y);
+  ctx.save();
+  ctx.translate(14, 20);
+  ctx.filter = 'blur(8px)';
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  pathPoly(ctx, pc.poly);
+  ctx.fill();
+  ctx.restore();
+  pathPoly(ctx, pc.poly);
+  ctx.save();
+  ctx.clip();
+  ctx.drawImage(getSnapshot(S, pc.page, pc.snapT), 0, 0, PW, PH);
+  ctx.restore();
+  ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Kâğıdın göğüs hizasından yanması (klipteki tek renk)
+function drawBurn(ctx, c, dt) {
+  if (dt < 0) return;
+  const grow = easeOut(clamp(dt / 5.5, 0, 1));
+  const R = 6 + 48 * grow;
+  const poly = [];
+  for (let i = 0; i < 48; i++) {
+    const a = (i / 48) * TAU;
+    const n = 1 + 0.12 * Math.sin(a * 3 + 1) + 0.07 * Math.sin(a * 5 + 2) + 0.035 * Math.sin(a * 11);
+    poly.push(P(c.x + Math.cos(a) * R * n, c.y + Math.sin(a) * R * n * 0.9));
+  }
+  const heat = dt < 5.5 ? 1 : Math.max(0.25, 1 - (dt - 5.5) * 0.12);
+  ctx.save();
+  const halo = ctx.createRadialGradient(c.x, c.y, R * 0.6, c.x, c.y, R * 1.9);
+  halo.addColorStop(0, 'rgba(70,40,20,0.75)');
+  halo.addColorStop(0.5, 'rgba(120,80,40,0.35)');
+  halo.addColorStop(1, 'rgba(120,80,40,0)');
+  ctx.fillStyle = halo;
+  ctx.beginPath(); ctx.arc(c.x, c.y, R * 1.9, 0, TAU); ctx.fill();
+  const hole = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, R);
+  hole.addColorStop(0, '#0d0a08');
+  hole.addColorStop(1, '#1d140e');
+  ctx.fillStyle = hole;
+  pathPoly(ctx, poly);
+  ctx.fill();
+  const flick = 0.75 + 0.25 * Math.sin(dt * 23) * Math.sin(dt * 7.3);
+  ctx.shadowColor = `rgba(255,120,30,${0.9 * heat})`;
+  ctx.shadowBlur = 18;
+  ctx.strokeStyle = `rgba(255,${140 + 40 * flick},60,${0.95 * heat * flick})`;
+  ctx.lineWidth = 3.5;
+  pathPoly(ctx, poly);
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = `rgba(255,220,150,${0.7 * heat * flick})`;
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+  const r = mulberry32(12);
+  for (let i = 0; i < 26; i++) {
+    const life = 1.2 + r() * 1.3, ph = r() * life, a = r() * TAU;
+    const age = ((dt + ph) % life) / life;
+    const x = c.x + Math.cos(a) * R * 0.95 + Math.sin(age * 6 + i) * 8, y = c.y + Math.sin(a) * R * 0.85 - age * (80 + r() * 60);
+    ctx.fillStyle = `rgba(255,${150 + r() * 80},60,${(1 - age) * heat * 0.9})`;
+    ctx.beginPath(); ctx.arc(x, y, 1.2 + r() * 1.8, 0, TAU); ctx.fill();
+  }
+  ctx.filter = 'blur(10px)';
+  for (let i = 0; i < 6; i++) {
+    const age = ((dt * 0.4 + i / 6) % 1);
+    ctx.fillStyle = `rgba(90,85,80,${0.18 * (1 - age) * heat})`;
+    ctx.beginPath(); ctx.arc(c.x + Math.sin(age * 5 + i) * 30, c.y - R - age * 220, 18 + age * 40, 0, TAU); ctx.fill();
+  }
+  ctx.restore();
+}
+
+/* =====================================================================
+   ÇİZİM: masa, defter, sayfa, kalem, ışık
+   ===================================================================== */
+function cameraAt(S, t) {
+  const K = S.camKeys;
+  let x = K[0].x, y = K[0].y, z = K[0].z, r = K[0].r;
+  if (t >= K[K.length - 1].t) ({ x, y, z, r } = K[K.length - 1]);
+  else {
+    for (let i = 1; i < K.length; i++) {
+      if (t <= K[i].t) {
+        const a = K[i - 1], b = K[i], u = easeInOut(range(t, a.t, b.t));
+        x = lerp(a.x, b.x, u); y = lerp(a.y, b.y, u); z = lerp(a.z, b.z, u); r = lerp(a.r, b.r, u);
+        break;
+      }
+    }
+  }
+  x += 2.4 * Math.sin(t * 0.53) + 1.3 * Math.sin(t * 1.31);
+  y += 2.0 * Math.sin(t * 0.61 + 1) + 1.1 * Math.sin(t * 1.7);
+  r += 0.0016 * Math.sin(t * 0.4);
+  for (const sh of S.shakes) {
+    if (t < sh.t || t > sh.t + sh.dur) continue;
+    const k = 1 - (t - sh.t) / sh.dur;
+    x += sh.amp * k * Math.sin(t * 61 + sh.t);
+    y += sh.amp * k * Math.cos(t * 53 + sh.t * 2);
+  }
+  return { x, y, z, r };
+}
+
+function drawPaperFace(ctx, page) {
+  ctx.fillStyle = pat(ctx, 'paper');
+  ctx.fillRect(0, 0, PW, PH);
+  ctx.strokeStyle = 'rgba(80,115,160,0.16)';
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  for (let y = 112; y < PH - 10; y += 44) { ctx.moveTo(0, y); ctx.lineTo(PW, y); }
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(200,80,80,0.16)';
+  ctx.beginPath(); ctx.moveTo(108, 60); ctx.lineTo(108, PH); ctx.stroke();
+  const g = ctx.createLinearGradient(0, 0, 0, 90);
+  g.addColorStop(0, 'rgba(0,0,0,0.12)');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, PW, 90);
+  drawHoles(ctx);
+  void page;
+}
+function drawHoles(ctx) {
+  ctx.fillStyle = '#26211d';
+  for (let i = 0; i < 31; i++) { const x = 38 + (i * (PW - 76)) / 30; ctx.beginPath(); ctx.ellipse(x, 22, 5, 6.5, 0, 0, TAU); ctx.fill(); }
+}
+function drawCoverFace(ctx) {
+  ctx.fillStyle = pat(ctx, 'card');
+  ctx.fillRect(0, 0, PW, PH);
+  const g = ctx.createLinearGradient(0, 0, PW, PH);
+  g.addColorStop(0, 'rgba(255,255,255,0.05)');
+  g.addColorStop(1, 'rgba(0,0,0,0.2)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, PW, PH);
+  ctx.fillStyle = 'rgba(20,18,16,0.9)';
+  ctx.fillRect(PW - 150, 0, 22, PH);
+  ctx.save();
+  ctx.translate(PW / 2, 430);
+  ctx.rotate(-0.02);
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.fillRect(-236, -86, 480, 184);
+  ctx.fillStyle = pat(ctx, 'paper');
+  ctx.fillRect(-240, -92, 480, 184);
+  ctx.strokeStyle = 'rgba(80,115,160,0.35)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(-226, -78, 452, 156);
+  ctx.font = `600 120px ${HAND}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = pat(ctx, 'graphite');
+  ctx.globalAlpha = 0.85;
+  ctx.fillText('yarım', 0, 4);
+  ctx.restore();
+  drawHoles(ctx);
+}
+
+// Sayfanın kâğıdı + grafit katmanı + hareketli öğeleri
+function drawPageContent(R, S, page, t, setPage, noClip) {
+  const ctx = R.ctx, lc = R.lctx;
+  ctx.save();
+  setPage(ctx);
+  if (!noClip) {
+    const shape = page.shapeAt(t);
+    pathPoly(ctx, shape || rectRing(0, 0, PW, PH));
+    ctx.clip();
+  }
+  if (page.kind === 'cover') { drawCoverFace(ctx); ctx.restore(); return; }
+  drawPaperFace(ctx, page);
+  lc.setTransform(1, 0, 0, 1, 0, 0);
+  lc.clearRect(0, 0, R.layer.width, R.layer.height);
+  setPage(lc);
+  for (const op of page.ops) {
+    if (op.t0 > t) break;
+    drawOp(lc, op, op.t1 <= op.t0 ? 1 : clamp((t - op.t0) / (op.t1 - op.t0), 0, 1));
+  }
+  for (const d of page.dyn) {
+    if (d.layer !== 'g' || t < d.t0 || t > d.t1) continue;
+    lc.save(); d.draw(lc, t); lc.restore();
+  }
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(R.layer, 0, 0);
+  ctx.restore();
+  for (const d of page.dyn) {
+    if (d.layer !== 'top' || t < d.t0 || t > d.t1) continue;
+    ctx.save(); d.draw(ctx, t); ctx.restore();
+  }
+  ctx.restore();
+}
+
+function visibleStack(S, t) {
+  const out = [];
+  for (const p of S.pages) {
+    if (!p.presentAt(t)) continue;
+    out.push(p);
+    if (!p.shapeAt(t) && p.kind !== 'cover') break;
+  }
+  return out.reverse();
+}
+
+function toolState(S, tool, t) {
+  const L = S.pencilTools[tool];
+  let i = -1;
+  for (let k = 0; k < L.length; k++) { if (L[k].t0 <= t) i = k; else break; }
+  const world = (p) => P(PAGE.x + p.x, PAGE.y + p.y);
+  const park = tool === 'pencil' ? P(2250, 1350) : P(2300, 900);
+  const cur = L[i];
+  if (cur && t < cur.t1) {
+    const f = (t - cur.t0) / (cur.t1 - cur.t0);
+    const h = cur.kind === 'hover' ? 0.5 - 0.5 * Math.cos(TAU * cur.g.taps * f) : 0;
+    return { vis: true, p: world(opTip(cur, f)), h };
+  }
+  const prev = cur, next = L[i + 1];
+  const pEnd = prev ? world(opTip(prev, 1)) : park, nStart = next ? world(opTip(next, 0)) : park;
+  if (prev && next && next.t0 - prev.t1 < 1.6) {
+    const u = easeInOut(range(t, prev.t1, next.t0));
+    return { vis: true, p: lerpP(pEnd, nStart, u), h: Math.sin(u * Math.PI) * Math.min(1, dist(pEnd, nStart) / 250) };
+  }
+  if (prev && t - prev.t1 < 0.8) { const u = easeIn(range(t, prev.t1, prev.t1 + 0.8)); return { vis: true, p: lerpP(pEnd, park, u), h: Math.min(1, u * 3) }; }
+  if (next && next.t0 - t < 0.8) { const u = easeOut(range(t, next.t0 - 0.8, next.t0)); return { vis: true, p: lerpP(park, nStart, u), h: Math.min(1, (1 - u) * 3) }; }
+  return { vis: false };
+}
+
+function drawPencil(ctx, p, h, broken) {
+  const ang = 0.62;
+  ctx.save();
+  ctx.translate(p.x + 12 + h * 45, p.y + 16 + h * 60);
+  ctx.rotate(ang);
+  ctx.filter = `blur(${6 + h * 8}px)`;
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(72, -12); ctx.lineTo(640, -12); ctx.lineTo(640, 12); ctx.lineTo(72, 12); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  ctx.save();
+  ctx.translate(p.x, p.y - h * 6);
+  ctx.scale(1 + h * 0.05, 1 + h * 0.05);
+  ctx.rotate(ang);
+  const wood = ctx.createLinearGradient(0, -12, 0, 12);
+  wood.addColorStop(0, '#ecd3ad'); wood.addColorStop(1, '#b8895a');
+  ctx.fillStyle = wood;
+  ctx.beginPath();
+  if (broken) { ctx.moveTo(26, -4); ctx.lineTo(22, 0); ctx.lineTo(27, 4); } else ctx.moveTo(0, 0);
+  ctx.lineTo(72, 12); ctx.lineTo(72, -12); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#2b2b2e';
+  ctx.beginPath();
+  if (broken) { ctx.moveTo(24, -2.5); ctx.lineTo(29, -3.5); ctx.lineTo(29, 3.5); ctx.lineTo(24, 2.5); }
+  else { ctx.moveTo(0, 0); ctx.lineTo(20, -3.4); ctx.lineTo(20, 3.4); }
+  ctx.closePath(); ctx.fill();
+  const facets = [['#46735a', -12, 8], ['#34594a', -4, 8], ['#24402f', 4, 8]];
+  for (const [c, y, hh] of facets) { ctx.fillStyle = c; ctx.fillRect(72, y, 560, hh); }
+  ctx.fillStyle = '#141414';
+  ctx.fillRect(632, -12, 18, 24);
+  ctx.fillStyle = 'rgba(214,180,90,0.9)';
+  ctx.font = '600 11px system-ui, sans-serif';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('KARAKALEM · 2B', 300, 0.5);
+  ctx.restore();
+}
+function drawEraserTool(ctx, p, h) {
+  ctx.save();
+  ctx.translate(p.x + 10 + h * 30, p.y + 14 + h * 40);
+  ctx.rotate(0.35);
+  ctx.filter = 'blur(7px)';
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.fillRect(-12, -28, 130, 56);
+  ctx.restore();
+  ctx.save();
+  ctx.translate(p.x, p.y - h * 5);
+  ctx.rotate(0.35);
+  const g = ctx.createLinearGradient(0, -26, 0, 26);
+  g.addColorStop(0, '#fbf8f2'); g.addColorStop(1, '#d9d4ca');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.moveTo(-14, -20); ctx.quadraticCurveTo(-18, 0, -14, 20); ctx.lineTo(50, 26); ctx.lineTo(50, -26); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#2d5a86';
+  ctx.fillRect(44, -27, 78, 54);
+  ctx.fillStyle = 'rgba(255,255,255,0.8)';
+  ctx.font = '700 15px system-ui, sans-serif';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('SİLGİ', 56, 1);
+  ctx.restore();
+}
+
+function drawDeskAndNotebook(ctx, S, t) {
+  ctx.fillStyle = pat(ctx, 'desk');
+  ctx.fillRect(-1200, -900, 4320, 2900);
+  ctx.save();
+  ctx.filter = 'blur(22px)';
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(PAGE.x - 4, PAGE.y + 10, PW + 40, PH + 40);
+  ctx.restore();
+  ctx.fillStyle = pat(ctx, 'card');
+  ctx.fillRect(PAGE.x - 10, PAGE.y - 8, PW + 24, PH + 22);
+  ctx.fillStyle = '#d6cfc0';
+  ctx.fillRect(PAGE.x + 4, PAGE.y + 6, PW + 6, PH + 6);
+  ctx.fillStyle = '#e1dacb';
+  ctx.fillRect(PAGE.x + 2, PAGE.y + 3, PW + 3, PH + 3);
+  // yere atılmış kâğıt topları
+  for (const pc of S.pieces) if (pc.kind === 'throw' && t >= pc.t1) drawThrow(ctx, S, pc, t);
+}
+function drawStubsAndRings(ctx, S, t) {
+  for (const st of S.stubs) {
+    if (t < st.t) continue;
+    const r = mulberry32(st.seed);
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(st.x0, -1);
+    ctx.lineTo(st.x1, -1);
+    for (let x = st.x1; x >= st.x0; x -= 10) ctx.lineTo(x, 26 + r() * 12);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.save(); ctx.translate(0, 3); ctx.fill(); ctx.restore();
+    ctx.fillStyle = pat(ctx, 'paper');
+    ctx.fill();
+    ctx.clip();
+    drawHoles(ctx);
+    ctx.restore();
+  }
+  for (let i = 0; i < 31; i++) {
+    const x = 38 + (i * (PW - 76)) / 30;
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = '#3b3a3c';
+    ctx.beginPath(); ctx.ellipse(x - 2, 0, 8, 24, 0, Math.PI * 0.62, Math.PI * 2.38); ctx.stroke();
+    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = 'rgba(230,230,235,0.8)';
+    ctx.beginPath(); ctx.ellipse(x - 3, -1, 7, 22, 0, Math.PI * 1.1, Math.PI * 1.6); ctx.stroke();
+  }
+}
+
+function blackAt(S, t) {
+  let a = 0;
+  for (const b of S.black) if (t >= b.t0 && t <= b.t1) a = Math.max(a, lerp(b.a0, b.a1, range(t, b.t0, b.t1)));
+  a = Math.max(a, 1 - range(t, 0.3, 1.8));
+  if (S.lampOff !== undefined) a = Math.max(a, range(t, S.lampOff, S.lampOff + 0.25) * 0.93, range(t, S.lampOff + 1.5, S.duration - 0.2));
+  return a;
+}
+
+function renderFrame(R, S, t) {
+  CURRENT_STORY = S;
+  const ctx = R.ctx, v = R.view;
+  const cam = cameraAt(S, t);
+  const setWorld = (c) => { c.setTransform(v.s, 0, 0, v.s, v.ox, v.oy); c.translate(W / 2, H / 2); c.scale(cam.z, cam.z); c.rotate(cam.r); c.translate(-cam.x, -cam.y); };
+  const setPage = (c) => { setWorld(c); c.translate(PAGE.x, PAGE.y); };
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, R.canvas.width, R.canvas.height);
+  ctx.save();
+  ctx.setTransform(v.s, 0, 0, v.s, v.ox, v.oy);
+  ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();
+  setWorld(ctx);
+  drawDeskAndNotebook(ctx, S, t);
+  for (const p of visibleStack(S, t)) {
+    drawPageContent(R, S, p, t, setPage);
+    for (const a of S.attached[p.id] || []) if (t >= a.t0) { ctx.save(); setPage(ctx); a.draw(ctx, t); ctx.restore(); }
+  }
+  ctx.save(); setPage(ctx); drawStubsAndRings(ctx, S, t); ctx.restore();
+  for (const pc of S.pieces) {
+    if (pc.kind === 'throw') { if (t >= pc.t0 && t < pc.t1) { setWorld(ctx); drawThrow(ctx, S, pc, t); } }
+    else if (pc.kind === 'flipUp' || pc.kind === 'flipDown') { if (t >= pc.t0 && t < pc.t1) drawFlip(ctx, S, pc, t, setPage); }
+    else if (pc.kind === 'fall') { if (t >= pc.snapT && t < pc.t1) { setWorld(ctx); drawFall(ctx, S, pc, t, setPage); } }
+  }
+  setWorld(ctx);
+  const broken = S.broken.some((b) => t >= b.t0 && t < b.t1);
+  const er = toolState(S, 'eraser', t);
+  if (er.vis) drawEraserTool(ctx, er.p, er.h);
+  const pe = toolState(S, 'pencil', t);
+  if (pe.vis) drawPencil(ctx, pe.p, pe.h, broken);
+  // ışık, sıcak ton, vinyet, gren, karartma
+  ctx.setTransform(v.s, 0, 0, v.s, v.ox, v.oy);
+  ctx.globalCompositeOperation = 'multiply';
+  ctx.fillStyle = 'rgb(255,241,220)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = 'source-over';
+  const g = ctx.createRadialGradient(W * 0.42, H * 0.36, 220, W * 0.5, H * 0.5, 1250);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(0.55, 'rgba(0,0,0,0.1)');
+  g.addColorStop(1, 'rgba(0,0,0,0.62)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = 0.05;
+  ctx.globalCompositeOperation = 'overlay';
+  const gi = ((Math.floor(t * 12) % 3) + 3) % 3;
+  ctx.save();
+  ctx.translate((gi * 97) % 256, (gi * 57) % 256);
+  ctx.fillStyle = pat(ctx, 'grain', gi);
+  ctx.fillRect(-256, -256, W + 512, H + 512);
+  ctx.restore();
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  const dark = blackAt(S, t);
+  if (dark > 0.001) { ctx.fillStyle = `rgba(0,0,0,${dark})`; ctx.fillRect(0, 0, W, H); }
+  ctx.restore();
+}
+
+/* =====================================================================
+   SES: geçici demo müzik (gitar, piyano, pad, bas, davul) + efektler
+   ===================================================================== */
+const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
+const CHORDS = {
+  Am: { g: [45, 52, 57, 60, 64], p: [57, 60, 64], b: 45 },
+  F: { g: [41, 48, 53, 57, 60], p: [53, 57, 60], b: 41 },
+  C: { g: [48, 52, 55, 60, 64], p: [55, 60, 64], b: 48 },
+  G: { g: [43, 50, 55, 59, 62], p: [55, 59, 62], b: 43 },
+};
+const PROG = ['Am', 'F', 'C', 'G'];
+const MELODY = [
+  [[0, 76, 1.5], [1.5, 74, 0.5], [2, 72, 1], [3, 71, 1]],
+  [[0, 72, 1.5], [1.5, 69, 0.5], [2, 72, 1], [3, 74, 1]],
+  [[0, 76, 2], [2, 79, 1], [3, 76, 1]],
+  [[0, 74, 2], [2, 71, 1], [3, 74, 1]],
+];
+function sectionAt(C, t) {
+  if (t < C.v1_1 - 0.05) return 'intro';
+  if (t < C.pc_1 - 0.05) return 'verse';
+  if (t < C.c1_1 - 0.05) return 'pre';
+  if (t < C.c1_6 + BAR * 2 - 0.05) return 'chorus';
+  if (t < C.v2_1 - 0.05) return 'inter';
+  if (t < C.c2_1 - 0.05) return 'verse2';
+  if (t < C.c2_6 + BAR * 2 - 0.05) return 'chorus2';
+  if (t < C.br_1 - 0.05) return 'inter2';
+  if (t < C.out_1 - 0.05) return 'bridge';
+  if (t < C.end + 1) return 'outro';
+  return null;
+}
+function buildMusic(C) {
+  const ev = { guitar: [], piano: [], pad: [], bass: [], drum: [] };
+  const beat = BAR / 4;
+  let secStart = 0, last = null;
+  for (let b = 0; b * BAR < C.end + 1; b++) {
+    const t = b * BAR, sec = sectionAt(C, t + 0.06);
+    if (!sec) continue;
+    if (sec !== last) { secStart = b; last = sec; }
+    const rel = b - secStart;
+    const ch = CHORDS[PROG[rel % 4]];
+    const chorus = sec === 'chorus' || sec === 'chorus2';
+    if (sec !== 'bridge' && sec !== 'inter2') {
+      if (chorus) {
+        for (const [bt, a] of [[0, 0.5], [1.5, 0.34], [2, 0.44], [3, 0.36], [3.5, 0.3]]) ch.g.forEach((m, i) => ev.guitar.push({ t: t + bt * beat + i * 0.014, m, amp: a * 0.5, dur: 1.4 }));
+      } else {
+        const patn = [0, 2, 3, 4, 3, 2, 3, 4], step = sec === 'outro' ? 2 : 1;
+        for (let k = 0; k < 8; k += step) ev.guitar.push({ t: t + (k * beat) / 2, m: ch.g[patn[k]], amp: k === 0 ? 0.55 : 0.36, dur: 2.2 });
+      }
+    }
+    const pv = { intro: rel >= 2 ? 0.2 : 0, verse: 0.24, pre: 0.3, chorus: 0.32, chorus2: 0.38, verse2: 0.16, bridge: 0.3, outro: 0.22, inter: 0.14, inter2: 0.2 }[sec];
+    if (pv) {
+      const hits = sec === 'pre' ? [0, 1, 2, 3] : chorus ? [0, 2] : [0];
+      const len = sec === 'pre' ? beat : chorus ? beat * 2 : BAR;
+      for (const hIdx of hits) ch.p.forEach((m) => ev.piano.push({ t: t + hIdx * beat, m, vel: pv, dur: len * 0.98 }));
+      if (sec === 'bridge') ev.piano.push({ t: t + 2 * beat, m: ch.p[2] + 12, vel: 0.16, dur: 2 * beat });
+    }
+    if (chorus) for (const [bt, m, d] of MELODY[rel % 4]) ev.piano.push({ t: t + bt * beat, m: m + (sec === 'chorus2' ? 12 : 0), vel: 0.3, dur: d * beat });
+    if (sec === 'pre' || chorus || sec === 'bridge') ev.pad.push({ t, ms: ch.p.map((m) => m - 12), dur: BAR, vel: sec === 'pre' ? 0.5 : sec === 'bridge' ? 0.35 : sec === 'chorus2' ? 0.9 : 0.7 });
+    if ((sec === 'verse' && rel >= 2) || sec === 'pre' || chorus || sec === 'outro') for (const hIdx of [0, 2]) ev.bass.push({ t: t + hIdx * beat, m: ch.b - 12, dur: beat * 1.9, vel: chorus ? 0.9 : 0.6 });
+    if (sec === 'verse2') [0, 7, 12, 7].forEach((d, k) => ev.bass.push({ t: t + k * beat, m: ch.b - 12 + d, dur: beat * 0.9, vel: 0.7 }));
+    if (chorus) {
+      for (const bt of [0, 2, 2.5]) ev.drum.push({ t: t + bt * beat, k: 'kick', vel: 1 });
+      for (const bt of [1, 3]) ev.drum.push({ t: t + bt * beat, k: 'snare', vel: 1 });
+      for (let k = 0; k < 8; k++) ev.drum.push({ t: t + (k * beat) / 2, k: 'hat', vel: k % 2 ? 0.6 : 1 });
+      if (rel === 0) ev.drum.push({ t, k: 'crash', vel: sec === 'chorus2' ? 1 : 0.7 });
+    }
+    if (sec === 'verse2') {
+      ev.drum.push({ t, k: 'kick', vel: 0.6 }, { t: t + 2 * beat, k: 'kick', vel: 0.5 });
+      for (let k = 0; k < 8; k++) ev.drum.push({ t: t + (k * beat) / 2, k: 'hat', vel: 0.5 });
+    }
+  }
+  return ev;
+}
+function renderGuitar(notes, sr, dur) {
+  const len = Math.ceil(sr * dur), L = new Float32Array(len), Rr = new Float32Array(len);
+  const rnd = mulberry32(77);
+  for (const n of notes) {
+    const f = mtof(n.m), N = Math.max(2, Math.round(sr / f));
+    const buf = new Float32Array(N);
+    for (let i = 0; i < N; i++) buf[i] = rnd() * 2 - 1;
+    for (let k = 0; k < 2; k++) for (let i = 0; i < N; i++) buf[i] = (buf[i] + buf[(i + 1) % N]) * 0.5;
+    const start = Math.floor(n.t * sr);
+    if (start >= len) continue;
+    const cnt = Math.min(len - start, Math.floor(n.dur * sr));
+    const pan = 0.5 + ((n.m % 5) - 2) * 0.08;
+    const gl = Math.cos((pan * Math.PI) / 2) * n.amp, gr = Math.sin((pan * Math.PI) / 2) * n.amp;
+    let idx = 0;
+    for (let i = 0; i < cnt; i++) {
+      const nj = idx + 1 === N ? 0 : idx + 1;
+      const v = buf[idx];
+      buf[idx] = (buf[idx] + buf[nj]) * 0.5 * 0.9966;
+      idx = nj;
+      const env = i > cnt - 3000 ? (cnt - i) / 3000 : 1;
+      L[start + i] += v * env * gl;
+      Rr[start + i] += v * env * gr;
+    }
+  }
+  return [L, Rr];
+}
+
+const NOISE = new WeakMap();
+function noiseBuf(ac) {
+  let b = NOISE.get(ac);
+  if (!b) {
+    b = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
+    const d = b.getChannelData(0), r = mulberry32(5);
+    for (let i = 0; i < d.length; i++) d[i] = r() * 2 - 1;
+    NOISE.set(ac, b);
+  }
+  return b;
+}
+function env(ac, out, when, peak, attack, dur, rel = 0.05) {
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.0001, when);
+  g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), when + attack);
+  g.gain.setTargetAtTime(0.0001, when + Math.max(attack, dur - rel), rel / 3);
+  g.connect(out);
+  return g;
+}
+function noiseSrc(ac, when, dur, filters, out) {
+  const s = ac.createBufferSource();
+  s.buffer = noiseBuf(ac);
+  s.loop = true;
+  let node = s;
+  for (const f of filters) {
+    const bq = ac.createBiquadFilter();
+    bq.type = f[0];
+    bq.frequency.setValueAtTime(f[1], when);
+    if (f[3]) bq.frequency.exponentialRampToValueAtTime(f[3], when + dur);
+    bq.Q.value = f[2] ?? 0.8;
+    node.connect(bq);
+    node = bq;
+  }
+  node.connect(out);
+  s.start(when, (when * 0.37) % 1.5);
+  s.stop(when + dur + 0.1);
+}
+function randomCurve(n, seed, lo = 0.2) {
+  const r = mulberry32(seed), c = new Float32Array(n);
+  for (let i = 0; i < n; i++) c[i] = lo + (1 - lo) * r();
+  return c;
+}
+const SFX = {
+  scratch: (ac, out, w, e) => {
+    const d = Math.max(0.08, e.dur || 0.3);
+    const g = env(ac, out, w, 0.05, 0.02, d, 0.06);
+    const am = ac.createGain();
+    am.gain.setValueCurveAtTime(randomCurve(Math.max(4, Math.floor(d * 40)), Math.floor(w * 10)), w, d);
+    am.connect(g);
+    noiseSrc(ac, w, d, [['bandpass', 3200, 0.9], ['highpass', 1400, 0.7]], am);
+  },
+  rub: (ac, out, w, e) => {
+    const d = Math.max(0.1, e.dur || 0.5);
+    const g = env(ac, out, w, 0.07, 0.03, d, 0.08);
+    const am = ac.createGain();
+    am.gain.setValueCurveAtTime(randomCurve(Math.max(4, Math.floor(d * 14)), Math.floor(w * 7), 0.1), w, d);
+    am.connect(g);
+    noiseSrc(ac, w, d, [['lowpass', 1300, 0.7], ['highpass', 200, 0.7]], am);
+  },
+  flip: (ac, out, w, e) => {
+    const d = e.dur || 0.9;
+    noiseSrc(ac, w, d * 0.8, [['bandpass', 700, 0.8, 3200]], env(ac, out, w, 0.14, d * 0.3, d * 0.8, 0.2));
+    noiseSrc(ac, w + d * 0.85, 0.1, [['lowpass', 500, 0.7]], env(ac, out, w + d * 0.85, 0.12, 0.005, 0.1));
+  },
+  tear: (ac, out, w, e) => {
+    const d = 0.5, g = env(ac, out, w, 0.32 * (e.gain ?? 1), 0.01, d, 0.08);
+    const am = ac.createGain();
+    am.gain.setValueCurveAtTime(randomCurve(60, Math.floor(w * 13), 0.05), w, d);
+    am.connect(g);
+    noiseSrc(ac, w, d, [['highpass', 1300, 0.7], ['bandpass', 3400, 0.9]], am);
+  },
+  crumple: (ac, out, w) => {
+    const r = mulberry32(Math.floor(w * 31));
+    for (let i = 0; i < 20; i++) { const t = w + r() * 0.65; noiseSrc(ac, t, 0.03, [['bandpass', 2400 + r() * 3000, 1.2]], env(ac, out, t, 0.08 + r() * 0.16, 0.003, 0.03)); }
+  },
+  toss: (ac, out, w) => noiseSrc(ac, w - 0.4, 0.4, [['bandpass', 400, 1, 1300]], env(ac, out, w - 0.4, 0.06, 0.2, 0.4, 0.1)),
+  land: (ac, out, w, e) => noiseSrc(ac, w, 0.09, [['lowpass', 900, 0.7]], env(ac, out, w, 0.12 * (e.gain ?? 1), 0.004, 0.09)),
+  tick: (ac, out, w) => {
+    noiseSrc(ac, w, 0.015, [['highpass', 3000, 0.7]], env(ac, out, w, 0.09, 0.002, 0.015));
+    const o = ac.createOscillator(); o.frequency.value = 1900; o.connect(env(ac, out, w, 0.025, 0.002, 0.03)); o.start(w); o.stop(w + 0.05);
+  },
+  snap: (ac, out, w) => {
+    noiseSrc(ac, w, 0.04, [['highpass', 1800, 0.7]], env(ac, out, w, 0.4, 0.002, 0.04));
+    const o = ac.createOscillator(); o.frequency.setValueAtTime(900, w); o.frequency.exponentialRampToValueAtTime(280, w + 0.06); o.connect(env(ac, out, w, 0.1, 0.002, 0.07)); o.start(w); o.stop(w + 0.1);
+  },
+  flicker: (ac, out, w) => noiseSrc(ac, w, 0.2, [['bandpass', 120, 4]], env(ac, out, w, 0.05, 0.01, 0.2)),
+  door: (ac, out, w) => {
+    const o = ac.createOscillator(); o.frequency.setValueAtTime(75, w); o.frequency.exponentialRampToValueAtTime(42, w + 0.3); o.connect(env(ac, out, w, 0.45, 0.004, 0.35)); o.start(w); o.stop(w + 0.4);
+    noiseSrc(ac, w, 0.3, [['lowpass', 600, 0.7]], env(ac, out, w, 0.25, 0.004, 0.3));
+  },
+  fire: (ac, out, w, e) => {
+    const d = e.dur || 6;
+    noiseSrc(ac, w, d, [['lowpass', 380, 0.7]], env(ac, out, w, 0.05, 0.8, d, 1));
+    const r = mulberry32(3);
+    for (let t = w; t < w + d; t += 0.04 + r() * 0.2) noiseSrc(ac, t, 0.012, [['bandpass', 1500 + r() * 3000, 1]], env(ac, out, t, 0.03 + r() * 0.06, 0.002, 0.012));
+  },
+  lamp: (ac, out, w) => {
+    noiseSrc(ac, w, 0.02, [['bandpass', 2600, 2]], env(ac, out, w, 0.2, 0.002, 0.02));
+    noiseSrc(ac, w + 0.03, 0.02, [['bandpass', 1400, 2]], env(ac, out, w + 0.03, 0.12, 0.002, 0.02));
+  },
+  coverOpen: (ac, out, w) => noiseSrc(ac, w, 1.1, [['bandpass', 500, 0.8, 1400]], env(ac, out, w, 0.1, 0.3, 1.1, 0.3)),
+  coverClose: (ac, out, w) => {
+    noiseSrc(ac, w, 0.14, [['lowpass', 700, 0.7]], env(ac, out, w, 0.35, 0.004, 0.14));
+    const o = ac.createOscillator(); o.frequency.setValueAtTime(95, w); o.frequency.exponentialRampToValueAtTime(55, w + 0.15); o.connect(env(ac, out, w, 0.3, 0.004, 0.18)); o.start(w); o.stop(w + 0.25);
+  },
+  drop: (ac, out, w) => noiseSrc(ac, w, 0.06, [['bandpass', 1800, 1.5]], env(ac, out, w, 0.15, 0.003, 0.06)),
+  slide: (ac, out, w) => noiseSrc(ac, w, 1.6, [['bandpass', 1800, 0.6]], env(ac, out, w, 0.05, 0.4, 1.6, 0.4)),
+};
+
+function makeImpulse(ac, sec) {
+  const len = Math.floor(ac.sampleRate * sec), b = ac.createBuffer(2, len, ac.sampleRate), r = mulberry32(8);
+  for (let c = 0; c < 2; c++) { const d = b.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (r() * 2 - 1) * Math.pow(1 - i / len, 3.2); }
+  return b;
+}
+// Ses 30 sn'lik parçalar halinde (paralel) işlenip üst üste eklenir: tek dev grafikten çok daha hızlı.
+async function renderAudio(S, o = {}) {
+  const sr = 44100, dur = S.duration, total = Math.ceil(sr * dur);
+  const L = new Float32Array(total), Rr = new Float32Array(total);
+  const music = o.music !== false ? buildMusic(S.C) : null;
+  const guitar = music ? renderGuitar(music.guitar, sr, dur) : null;
+  const CH = 30, TAIL = 12, jobs = [];
+  for (let c0 = 0; c0 < dur; c0 += CH) jobs.push(renderChunk(S, o, music, guitar, c0, Math.min(dur, c0 + CH), TAIL, sr));
+  for (const { buf, c0 } of await Promise.all(jobs)) {
+    const off = Math.round(c0 * sr), a = buf.getChannelData(0), b = buf.getChannelData(1);
+    const n = Math.min(a.length, total - off);
+    for (let i = 0; i < n; i++) { L[off + i] += a[i]; Rr[off + i] += b[i]; }
+  }
+  for (const ch of [L, Rr]) for (let i = 0; i < total; i++) { const v = ch[i]; if (v > 0.8 || v < -0.8) ch[i] = Math.sign(v) * (0.8 + 0.2 * Math.tanh((Math.abs(v) - 0.8) / 0.2)); }
+  return { numberOfChannels: 2, length: total, sampleRate: sr, getChannelData: (c) => (c ? Rr : L) };
+}
+async function renderChunk(S, o, music, guitar, c0, c1, TAIL, sr) {
+  const C = S.C, len = Math.ceil(sr * Math.min(S.duration - c0, c1 - c0 + TAIL));
+  const ac = new OfflineAudioContext(2, len, sr);
+  const inC = (t) => t >= c0 && t < c1;
+  const at = (t) => Math.max(0.0005, t - c0);
+  const master = ac.createGain();
+  master.gain.value = 0.9;
+  master.connect(ac.destination);
+  const rev = ac.createConvolver();
+  rev.buffer = makeImpulse(ac, 3);
+  const revG = ac.createGain(); revG.gain.value = 0.3;
+  rev.connect(revG); revG.connect(master);
+  if (music) {
+    const bus = ac.createGain();
+    const f0 = C.end - 2.5, f1 = C.end + 3;
+    const fade = (t) => (t <= f0 ? 0.85 : t >= f1 ? 0.0001 : lerp(0.85, 0.0001, (t - f0) / (f1 - f0)));
+    bus.gain.setValueAtTime(fade(c0), 0);
+    if (f1 > c0) { if (f0 > c0) bus.gain.setValueAtTime(0.85, f0 - c0); bus.gain.linearRampToValueAtTime(0.0001, f1 - c0); }
+    bus.connect(master); bus.connect(rev);
+    const a = Math.floor(c0 * sr), b = Math.min(guitar[0].length, Math.floor(c1 * sr));
+    if (b > a) {
+      const gb = ac.createBuffer(2, b - a, sr);
+      gb.copyToChannel(guitar[0].subarray(a, b), 0); gb.copyToChannel(guitar[1].subarray(a, b), 1);
+      const src = ac.createBufferSource(); src.buffer = gb;
+      const gg = ac.createGain(); gg.gain.value = 0.42;
+      src.connect(gg); gg.connect(bus); src.start(0);
+    }
+    for (const n of music.piano) {
+      if (!inC(n.t)) continue;
+      const f = mtof(n.m), t = at(n.t);
+      [[1, 1], [2, 0.42], [3, 0.18], [4.02, 0.07]].forEach(([k, amp]) => {
+        const osc = ac.createOscillator(); osc.frequency.value = f * k;
+        const g = ac.createGain();
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(n.vel * amp * 0.16, t + 0.006);
+        g.gain.setTargetAtTime(0, t + 0.006, (1.6 * Math.pow(220 / f, 0.3)) / Math.sqrt(k));
+        g.gain.setTargetAtTime(0, t + n.dur, 0.12);
+        osc.connect(g); g.connect(bus); osc.start(t); osc.stop(t + n.dur + 0.8);
+      });
+    }
+    for (const n of music.pad) {
+      if (!inC(n.t)) continue;
+      const t = at(n.t);
+      const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1100; lp.Q.value = 0.4;
+      const g = ac.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.018 * n.vel, t + 0.9);
+      g.gain.setValueAtTime(0.018 * n.vel, t + n.dur - 0.2);
+      g.gain.linearRampToValueAtTime(0, t + n.dur + 0.8);
+      lp.connect(g); g.connect(bus);
+      for (const m of n.ms) for (const det of [-7, 7]) { const osc = ac.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = mtof(m); osc.detune.value = det; osc.connect(lp); osc.start(t); osc.stop(t + n.dur + 0.9); }
+    }
+    for (const n of music.bass) {
+      if (!inC(n.t)) continue;
+      const t = at(n.t);
+      const osc = ac.createOscillator(); osc.frequency.value = mtof(n.m);
+      const osc2 = ac.createOscillator(); osc2.type = 'triangle'; osc2.frequency.value = mtof(n.m);
+      const g = env(ac, bus, t, 0.2 * n.vel, 0.01, n.dur, 0.12);
+      osc.connect(g); osc2.connect(g);
+      osc.start(t); osc.stop(t + n.dur + 0.2); osc2.start(t); osc2.stop(t + n.dur + 0.2);
+    }
+    for (const d of music.drum) {
+      if (!inC(d.t)) continue;
+      const t = at(d.t);
+      if (d.k === 'kick') { const osc = ac.createOscillator(); osc.frequency.setValueAtTime(120, t); osc.frequency.exponentialRampToValueAtTime(45, t + 0.15); osc.connect(env(ac, bus, t, 0.42 * d.vel, 0.003, 0.3, 0.12)); osc.start(t); osc.stop(t + 0.4); }
+      else if (d.k === 'snare') noiseSrc(ac, t, 0.22, [['bandpass', 2000, 0.6]], env(ac, bus, t, 0.13 * d.vel, 0.003, 0.2, 0.1));
+      else if (d.k === 'hat') noiseSrc(ac, t, 0.05, [['highpass', 8000, 0.7]], env(ac, bus, t, 0.025 * d.vel, 0.002, 0.04));
+      else noiseSrc(ac, t, 1.6, [['highpass', 5000, 0.7]], env(ac, bus, t, 0.06 * d.vel, 0.003, 1.6, 0.6));
+    }
+  }
+  if (o.sfx !== false) {
+    const bus = ac.createGain(); bus.gain.value = o.sfxGain ?? 1;
+    bus.connect(master);
+    const sr2 = ac.createGain(); sr2.gain.value = 0.25; bus.connect(sr2); sr2.connect(rev);
+    for (const e of S.sfx) { const fn = SFX[e.name]; if (fn && inC(e.t)) fn(ac, bus, at(e.t), e); }
+  }
+  return { buf: await ac.startRendering(), c0 };
+}
+function wavBase64(buf) {
+  const ch = buf.numberOfChannels, len = buf.length, sr = buf.sampleRate;
+  const view = new DataView(new ArrayBuffer(44 + len * ch * 2));
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, 'RIFF'); view.setUint32(4, 36 + len * ch * 2, true); str(8, 'WAVE');
+  str(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, ch, true);
+  view.setUint32(24, sr, true); view.setUint32(28, sr * ch * 2, true); view.setUint16(32, ch * 2, true); view.setUint16(34, 16, true);
+  str(36, 'data'); view.setUint32(40, len * ch * 2, true);
+  const chans = [];
+  for (let c = 0; c < ch; c++) chans.push(buf.getChannelData(c));
+  let off = 44;
+  for (let i = 0; i < len; i++) for (let c = 0; c < ch; c++) { const s = clamp(chans[c][i], -1, 1); view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true); off += 2; }
+  const bytes = new Uint8Array(view.buffer);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+/* =====================================================================
+   UYGULAMA: canlı oynatıcı, şarkı yükleme, senkron kaydı, render arayüzü
+   ===================================================================== */
+const canvas = document.getElementById('c');
+const R = { canvas, ctx: canvas.getContext('2d'), layer: makeCanvas(8, 8), view: { s: 1, ox: 0, oy: 0 } };
+R.lctx = R.layer.getContext('2d');
+let STORY = null;
+
+function setSize(w, h, view) {
+  canvas.width = w; canvas.height = h;
+  R.layer.width = w; R.layer.height = h;
+  R.view = view;
+}
+function fitScreen() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = Math.round(window.innerWidth * dpr), h = Math.round(window.innerHeight * dpr);
+  const s = Math.min(w / W, h / H);
+  setSize(w, h, { s, ox: (w - W * s) / 2, oy: (h - H * s) / 2 });
+}
+async function fontsReady() {
+  try { await Promise.race([Promise.all([document.fonts.load(`600 48px ${HAND}`), document.fonts.load(`700 48px ${HAND}`)]), new Promise((r) => setTimeout(r, 4000))]); } catch (e) { /* yedek yazı tipi */ }
+}
+function rebuild(cues) {
+  STORY = buildStory(cues);
+  SNAP.clear();
+  SNAP_SMALL.clear();
+  return STORY;
+}
+
+if (RENDER) {
+  document.body.classList.add('render');
+  window.KLIP = {
+    async init(o = {}) {
+      buildTextures();
+      await fontsReady();
+      const cues = (o.cues && sanitizeCues(o.cues)) || defaultCues();
+      rebuild(cues);
+      const sc = o.scale || 1;
+      setSize(Math.round(W * sc), Math.round(H * sc), { s: sc, ox: 0, oy: 0 });
+      return { duration: STORY.duration, fps: FPS, frames: Math.ceil(STORY.duration * FPS), font: document.fonts.check(`600 40px 'Caveat'`) };
+    },
+    frame(i, q) { renderFrame(R, STORY, i / FPS); return canvas.toDataURL('image/jpeg', q || 0.92); },
+    async audio(o) { return wavBase64(await renderAudio(STORY, o || {})); },
+  };
+} else {
+  const $ = (id) => document.getElementById(id);
+  const startBox = $('start'), startBtn = $('startBtn'), startNote = $('startNote'), bar = $('bar'), playBtn = $('playBtn'), seek = $('seek'), timeEl = $('time'), syncBox = $('sync');
+  const player = { ac: null, tracks: [], sources: [], playing: false, offset: 0, startAt: 0, perf0: 0 };
+  let song = null;
+  const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  const now = () => (player.playing ? (player.ac ? player.ac.currentTime - player.startAt : (performance.now() - player.perf0) / 1000) : player.offset);
+  function play() {
+    if (player.playing) return;
+    if (player.ac) {
+      player.ac.resume();
+      const at = player.ac.currentTime + 0.05;
+      player.sources = player.tracks.map((tr) => {
+        const s = player.ac.createBufferSource(); s.buffer = tr.buf;
+        const g = player.ac.createGain(); g.gain.value = tr.gain;
+        if (!player.comp) { player.comp = player.ac.createDynamicsCompressor(); player.comp.threshold.value = -16; player.comp.ratio.value = 3; player.comp.connect(player.ac.destination); }
+        s.connect(g); g.connect(player.comp);
+        s.start(at, Math.min(player.offset, tr.buf.duration));
+        return s;
+      });
+      player.startAt = at - player.offset;
+    } else player.perf0 = performance.now() - player.offset * 1000;
+    player.playing = true;
+    playBtn.textContent = '❚❚';
+  }
+  function pause() {
+    if (!player.playing) return;
+    player.offset = now();
+    player.sources.forEach((s) => { try { s.stop(); } catch (e) { /* bitti */ } });
+    player.sources = [];
+    player.playing = false;
+    playBtn.textContent = '▶';
+  }
+  function seekTo(t) { const was = player.playing; pause(); player.offset = clamp(t, 0, STORY.duration); if (was) play(); }
+  async function prepareAudio() {
+    try {
+      if (!player.ac) player.ac = new (window.AudioContext || window.webkitAudioContext)();
+      player.tracks = [];
+      const toBuf = (r) => { const b = player.ac.createBuffer(2, r.length, r.sampleRate); b.copyToChannel(r.getChannelData(0), 0); b.copyToChannel(r.getChannelData(1), 1); return b; };
+      if (song) {
+        const sfx = toBuf(await renderAudio(STORY, { music: false, sfxGain: 0.8 }));
+        player.tracks = [{ buf: song, gain: 1 }, { buf: sfx, gain: 0.8 }];
+      } else player.tracks = [{ buf: toBuf(await renderAudio(STORY, {})), gain: 1 }];
+    } catch (e) { console.warn('Ses hazırlanamadı:', e); player.ac = null; player.tracks = []; }
+  }
+  async function applyCues(cues, restart = true) {
+    pause();
+    rebuild(cues);
+    startNote.textContent = 'Ses yeniden hazırlanıyor…';
+    await prepareAudio();
+    if (restart) { player.offset = 0; play(); }
+  }
+  playBtn.onclick = () => (player.playing ? pause() : play());
+  seek.oninput = () => seekTo((seek.value / 1000) * STORY.duration);
+  let hideTimer = 0;
+  const poke = () => { bar.classList.remove('hide'); clearTimeout(hideTimer); hideTimer = setTimeout(() => player.playing && bar.classList.add('hide'), 2600); };
+  window.addEventListener('pointermove', poke);
+  window.addEventListener('pointerdown', poke);
+  window.addEventListener('resize', fitScreen);
+
+  $('songFile').onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    pause();
+    if (!player.ac) player.ac = new (window.AudioContext || window.webkitAudioContext)();
+    try {
+      song = await player.ac.decodeAudioData(await file.arrayBuffer());
+      await prepareAudio();
+      seekTo(0); play();
+      openSync(true);
+    } catch (err) { alert('Ses dosyası okunamadı: ' + err.message); }
+  };
+
+  // Senkron kaydı: şarkı çalarken her satırın başında BOŞLUK'a bas
+  let sync = null;
+  function openSync(hint) {
+    syncBox.hidden = false;
+    const saved = loadSavedCues();
+    syncBox.innerHTML = `<h3>⏱ Şarkıyla senkron</h3>
+      <div>${song ? 'Şarkın yüklü.' : 'Önce <b>🎵 Şarkını yükle</b> ile kaydını seç (mp3/wav).'} “Kaydı başlat”a bas; şarkı baştan çalar.
+      Her satır <b>söylenmeye başladığı an</b> BOŞLUK tuşuna (ya da “Şimdi”) bas. En sonda şarkı bittiğinde bir kez daha bas.</div>
+      <div class="row"><button class="btn" id="sStart" ${song ? '' : 'disabled'}>Kaydı başlat</button><button class="btn ghost" id="sNow" disabled>Şimdi</button>
+      <button class="btn ghost" id="sReset">${saved ? 'Kayıtlı zamanlamayı sil' : 'Varsayılan zamanlama'}</button><button class="btn ghost" id="sClose">Kapat</button></div>
+      <ol id="sList">${CUE_ORDER.map((k) => `<li>${LYRICS[k]}</li>`).join('')}</ol><div id="sOut"></div>`;
+    $('sClose').onclick = () => { syncBox.hidden = true; sync = null; };
+    $('sReset').onclick = async () => { localStorage.removeItem('yarim-cues'); await applyCues(defaultCues()); syncBox.hidden = true; };
+    $('sStart').onclick = () => { sync = { i: 0, cues: {} }; $('sNow').disabled = false; seekTo(0); play(); markList(); };
+    $('sNow').onclick = () => mark();
+    if (hint && song) syncBox.querySelector('div').insertAdjacentHTML('afterbegin', '<p style="margin:0 0 6px;color:#e7c98e">Klibi şarkına oturtmak için satır başlarını bir kez işaretle.</p>');
+  }
+  function markList() {
+    const lis = syncBox.querySelectorAll('#sList li');
+    lis.forEach((li, i) => { li.className = i < sync.i ? 'done' : i === sync.i ? 'next' : ''; });
+    const next = lis[sync.i];
+    if (next) next.scrollIntoView({ block: 'nearest' });
+  }
+  async function mark() {
+    if (!sync) return;
+    sync.cues[CUE_ORDER[sync.i]] = +now().toFixed(3);
+    sync.i++;
+    markList();
+    if (sync.i >= CUE_ORDER.length) {
+      const cues = sanitizeCues(sync.cues);
+      sync = null;
+      if (!cues) { $('sOut').textContent = 'Zamanlar sırasız görünüyor, tekrar dene.'; return; }
+      const json = JSON.stringify({ cues }, null, 1);
+      localStorage.setItem('yarim-cues', JSON.stringify(cues));
+      $('sOut').innerHTML = `<p>Kaydedildi. Bu zamanlama MP4 için de kullanılabilir (render.js --timing zamanlama.json).</p><textarea readonly>${json}</textarea>
+        <div class="row"><button class="btn" id="sDl">zamanlama.json indir</button></div>`;
+      $('sDl').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' })); a.download = 'zamanlama.json'; a.click(); };
+      await applyCues(cues);
+    }
+  }
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') { e.preventDefault(); if (sync) mark(); else if (!startBox.hidden) startBtn.click(); else player.playing ? pause() : play(); }
+  });
+  $('syncBtn').onclick = () => (syncBox.hidden ? openSync(false) : (syncBox.hidden = true));
+
+  function frame() {
+    let t = Math.max(0, now());
+    if (t >= STORY.duration) { pause(); player.offset = 0; t = STORY.duration - 0.001; startBox.hidden = false; startBtn.textContent = '↻ Tekrar izle'; }
+    renderFrame(R, STORY, t);
+    seek.value = String(Math.round((t / STORY.duration) * 1000));
+    timeEl.textContent = `${fmt(t)} / ${fmt(STORY.duration)}`;
+    requestAnimationFrame(frame);
+  }
+  (async () => {
+    buildTextures();
+    fitScreen();
+    await fontsReady();
+    rebuild(loadSavedCues() || defaultCues());
+    requestAnimationFrame(frame);
+    startNote.innerHTML = 'Şarkı henüz kaydedilmediği için geçici bir demo müzik çalar (ilk açılışta birkaç saniyede hazırlanır).<br>Kaydın hazır olunca <b>🎵 Şarkını yükle</b> ve <b>⏱ Senkron</b> ile klibi şarkına oturt.';
+    startBtn.disabled = false;
+    startBtn.onclick = () => {
+      startBox.hidden = true; bar.hidden = false;
+      if (!player.ac) { try { player.ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { player.ac = null; } }
+      if (player.offset >= STORY.duration - 0.1) player.offset = 0;
+      play(); poke();
+    };
+    const ready = prepareAudio();
+    ready.then(() => { if (player.playing) { const t = now(); pause(); player.offset = t; play(); } });
+  })();
+}
+</script>
+</body>
+</html>
